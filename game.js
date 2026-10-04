@@ -1,14 +1,15 @@
 import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=21';
 import {ResolutionController} from './resolution.js?v=6';
 import {ArcadeScore} from './music.js?v=21';
-import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=26';
-import {TrafficFire,advanceTraffic} from './traffic.js?v=26';
+import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=27';
+import {TrafficFire,advanceTraffic} from './traffic.js?v=27';
 import {burnCommand} from './flight-controls.js?v=15';
 import {ChaseCamera,rocketPoint} from './chase.js?v=15';
-import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=26';
+import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=27';
 import {compactRadius,mapCoordinates,mapVelocity} from './map.js?v=25';
 import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=26';
 import {centralShip,centralHull,centralHullShader,brakingAim} from './docking.js?v=26';
+import {awardUpgrade,playerHull,interceptorHull,interceptorShader,cannonHull,cannonShader,laserMuzzle,engineNozzles} from './ship-upgrades.js?v=27';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
 // Static launch/briefing frames must survive compositor clears in Safari.
 // Let the browser choose the GPU instead of forcing a graphics switch on launch.
@@ -22,7 +23,7 @@ let launched=false,dirty=true,pendingFence=null,musicWanted=true,effectTime=0,re
 const EXPLOSION_SECONDS=1.6,touchHolds=new Map();
 let chase=true,beams=[],lastShot=-Infinity,kills=0,shots=0,lastImpact=null;
 let selectedImageShip=null,imageFrame=null;
-const flightProgram=new MissionProgram();let missionTargetId=null,pendingMission=null,missionAdvice=false;const announcedMissions=new Set();
+const flightProgram=new MissionProgram();let missionTargetId=null,pendingMission=null;const announcedMissions=new Set();
 const trickMission=()=>flightProgram.missions[0];
 const dockingActive=()=>flightProgram.accepted.has('center-rest')&&flightProgram.missions[1].status==='active'&&!gameOver;
 function missionTarget(){if(!flightProgram.accepted.has('trick-shot')||trickMission().status!=='active')return null;let target=fleet.find(s=>s.id===missionTargetId&&!Number.isFinite(s.deathTime));if(!target){target=fleet.find(s=>!Number.isFinite(s.deathTime));missionTargetId=target?.id??null}return target}
@@ -46,12 +47,12 @@ function notify(s){$('notice').textContent=s;$('notice').classList.add('show');c
 function clearControls(){thrustForce=[0,0,0];chaseCamera.force=[0,0,0];drag=null;gpuSampleValid=false;resolution.resetSamples();engineLevel=0;score.setThrust(0);dirty=true;keys.clear();touchHolds.clear();document.querySelectorAll('[data-key]').forEach(b=>b.classList.remove('pressed'))}
 function held(code){return keys.has(code)||[...touchHolds.values()].some(b=>b.dataset.key===code)}
 function setPause(value){paused=value;clearControls();$('pauseOverlay').hidden=!value;$('pauseButton').innerHTML=value?'▷ <span>Resume</span>':'Ⅱ <span>Pause</span>';$('touchPause').textContent=value?'RESUME':'PAUSE';$('touchPause').setAttribute('aria-pressed',String(value));last=performance.now()}
-function reset(){gameOver=false;deathAnimation=0;selectedImageShip=null;imageFrame=null;$('gameOverScreen').hidden=true;if($('missionOfferDialog').open)$('missionOfferDialog').close();flightProgram.reset();announcedMissions.clear();pendingMission=null;missionTargetId=null;setPause(false);player=initialPlayer();chaseCamera.reset();thrustForce=[0,0,0];trafficFire.reset();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
+function reset(){gameOver=false;deathAnimation=0;selectedImageShip=null;imageFrame=null;$('gameOverScreen').hidden=true;dismissDirac();if($('missionOfferDialog').open)$('missionOfferDialog').close();flightProgram.reset();announcedMissions.clear();pendingMission=null;missionTargetId=null;setPause(false);player=initialPlayer();chaseCamera.reset();thrustForce=[0,0,0];trafficFire.reset();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
 function fire(){if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]')||player.tau-lastShot<.012)return false;lastShot=player.tau;const beam=createLaser(player,[...fleet,centralShip]);beam.flashTime=effectTime;beams.push(beam);shots++;score.laser();dirty=true;return true}
 $('fireButton').onclick=fire;
 $('retryButton').onclick=()=>{reset();canvas.focus({preventScroll:true})};
 function endFlight(){
- gameOver=true;deathAnimation=0;flightProgram.fail(announcedMissions);clearControls();score.explosion();dirty=true;
+ gameOver=true;deathAnimation=0;dismissDirac();flightProgram.fail(announcedMissions);clearControls();score.explosion();dirty=true;
  $('laserStatus').textContent='ROCKET DESTROYED';
 }
 
@@ -104,28 +105,38 @@ $('introContinue').onclick=nextIntro;$('introClose').onclick=nextIntro;$('introS
 function launch(){if(launched||!graphicsReady)return;launched=true;$('launchScreen').hidden=true;introStep=0;renderIntro(false);$('introScreen').hidden=false;$('introScreen').showModal();clearControls();document.body.classList.add('story-open');$('introClose').focus({preventScroll:true});last=performance.now();dirty=true;if(musicWanted)void setMusic(true).then(()=>{if(!$('introScreen').hidden)score.incoming()})}
 $('launchButton').onclick=launch;$('launchSound').onclick=()=>void setMusic(!musicWanted);$('musicButton').onclick=()=>void setMusic(!musicWanted);
 function openDialog(id){clearControls();$(id).showModal()}
+function dismissDirac(){$('diracRadio').hidden=true}
+function showDirac(id,reward=null){
+ const mission=missionCatalog.find(m=>m.id===id);
+ $('diracRadioTitle').textContent=reward?'UPGRADE INSTALLED':mission.name;
+ $('diracRadioText').textContent=reward==='frame'
+  ?'Docking confirmed. Axiom has fitted you with a new interceptor: swept wings, twin engines and a luminous cockpit. Your cannon stays mounted if you have earned it.'
+  :reward==='cannon'
+   ?'An excellent reflection. Your reward is a mounted laser cannon. Use F or FIRE as before—and keep clear of returning shots.'
+   :id==='trick-shot'
+    ?'Steer toward the gold BANK AIM marker. Center it in your sights and fire with F or FIRE. Your laser must bounce off the boundary before hitting the marked vessel.'
+    :'Axiom waits at r = 0. Use M for the map. Cyan shows your travel; amber shows where to point your nose and thrust to slow down. Space or BRAKE does this without turning. Approach gently and hold slow in the open central bay for two ship seconds.';
+ $('diracRadio').hidden=false;score.incoming();
+}
+$('diracRadioClose').onclick=()=>{dismissDirac();if(!document.querySelector('dialog[open]'))canvas.focus({preventScroll:true})};
 function offerMission(id){
- pendingMission=id;missionAdvice=false;const m=missionCatalog.find(m=>m.id===id);
+ pendingMission=id;dismissDirac();const m=missionCatalog.find(m=>m.id===id);
  $('missionOfferTitle').textContent=m.name;$('missionOfferText').textContent=m.description;
- $('missionMentor').hidden=true;$('missionOfferTip').hidden=true;$('missionOfferEyebrow').textContent='MISSION AVAILABLE';
- $('missionAccept').textContent='ACCEPT';$('missionDecline').hidden=false;$('missionOfferClose').setAttribute('aria-label','Decline mission');
  openDialog('missionOfferDialog');document.querySelector('.mission-message').scrollTop=0;$('missionAccept').focus({preventScroll:true});score.incoming();
 }
 $('missionAccept').onclick=()=>{
- if(missionAdvice){$('missionOfferDialog').close();return}
  if(!pendingMission)return;
- flightProgram.accept(pendingMission,player);missionAdvice=true;
- $('missionMentor').hidden=false;$('missionOfferTip').hidden=false;$('missionOfferEyebrow').textContent='MISSION ACCEPTED';
- $('missionOfferText').textContent=pendingMission==='trick-shot'?'A straight line is not always the shortest way to victory.':'Axiom waits at r = 0. Arrive gently; position alone is not enough.';
- $('missionOfferTip').textContent=pendingMission==='trick-shot'
-  ?'Steer toward the gold BANK AIM marker. Center it in your sights, then fire with F or FIRE. Your laser must bounce off the boundary before hitting the marked vessel.'
-  :'Use M to open the map. Cyan shows your travel direction. The amber arrow shows where to point your NOSE and burn with W or THRUST to slow down; exhaust goes the other way. Space or BRAKE does this without turning. Approach Axiom with short bursts, brake early, and hold still in its open central bay for two ship seconds.';
- $('missionAccept').textContent='READY';$('missionDecline').hidden=true;$('missionOfferClose').setAttribute('aria-label','Close Dirac’s advice');
- document.querySelector('.mission-message').scrollTop=0;$('missionAccept').focus({preventScroll:true});dirty=true;updateUi();score.incoming();
+ const id=pendingMission;flightProgram.accept(id,player);$('missionOfferDialog').close();showDirac(id);dirty=true;updateUi();
 };
 $('missionDecline').onclick=()=>$('missionOfferDialog').close();
-$('missionOfferDialog').addEventListener('close',()=>{if($('missionOfferDialog').open)return;pendingMission=null;missionAdvice=false;last=performance.now();canvas.focus({preventScroll:true})});
-function announceMissions(){for(const m of flightProgram.missions){if(m.status==='complete'&&!announcedMissions.has(m.id)){announcedMissions.add(m.id);notify(m.id==='center-rest'?'DOCKING COMPLETE · Welcome aboard Axiom':`${m.getState().name} complete`)}}}
+$('missionOfferDialog').addEventListener('close',()=>{if($('missionOfferDialog').open)return;pendingMission=null;last=performance.now();canvas.focus({preventScroll:true})});
+function announceMissions(){
+ for(const m of flightProgram.missions)if(m.status==='complete'&&!announcedMissions.has(m.id)){
+  announcedMissions.add(m.id);const reward=awardUpgrade(player,m.id);dirty=true;
+  notify(m.id==='center-rest'?'DOCKING COMPLETE · INTERCEPTOR UNLOCKED':'TRICK SHOT COMPLETE · CANNON INSTALLED');
+  if(reward)showDirac(m.id,reward);
+ }
+}
 function openMap(){openDialog('mapDialog');drawExpandedMap()}
 $('expandMapButton').onclick=openMap;
 function toggleFlightMap(show=$('flightMap').hidden){
@@ -169,6 +180,7 @@ document.addEventListener('keydown',e=>{
   return;
  }
  if(!$('introScreen').hidden){if(e.code==='Enter'){e.preventDefault();if(!e.repeat)nextIntro()}return}
+ if((e.code==='Enter'||e.code==='Escape')&&!e.repeat&&!$('diracRadio').hidden&&!document.querySelector('dialog[open]')){e.preventDefault();dismissDirac();return}
  if(e.code==='KeyM'&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)&&(!document.querySelector('dialog[open]')||$('mapDialog').open)){e.preventDefault();if(!e.repeat){if($('mapDialog').open)$('mapDialog').close();else if(gameOver)openMap();else toggleFlightMap()}return}
  if(e.code==='Escape'&&!document.querySelector('dialog[open]')&&!$('flightMap').hidden){e.preventDefault();toggleFlightMap(false);return}
  if(gameOver){if(!document.querySelector('dialog[open]')&&!e.repeat&&(e.code==='KeyR'||e.code==='Enter')){e.preventDefault();reset();canvas.focus({preventScroll:true})}return}
@@ -230,6 +242,8 @@ function initRenderer(){
  uniform int shipCount;
  uniform vec3 playerColor;
  uniform float engineBurn;
+ uniform float playerCannon;
+ uniform float playerFiring;
  out vec4 frag;
  const float PI=3.141592653589793;
  vec4 data(int row,int col){return texelFetch(fleet,ivec2(col,row),0);}
@@ -278,10 +292,16 @@ function initRenderer(){
    vec3 radii=vec3(.013,.014,.047)*size,center=vec3(0);
    float h=0.0,etaHit=1.0,bestDelay=nearest;int part=0;bool found=false;
    bool own=data(i,2).w>.5;
-   int pieces=kind==4?${centralHull.length}:kind==3?6:kind==1?4:2;
+   bool cannon=own&&playerCannon>.5;
+   int pieces=kind==5?${interceptorHull.length}+(cannon?${cannonHull.length}:0):own&&kind==0?2+(cannon?${cannonHull.length}:0):kind==4?${centralHull.length}:kind==3?6:kind==1?4:2;
    for(int piece=0;piece<pieces;piece++){
     vec3 rr,cc;bool enabled=true;
-    if(kind==0){
+    if(cannon&&piece>=(kind==5?${interceptorHull.length}:2)){
+     int modulePart=piece-(kind==5?${interceptorHull.length}:2);
+     ${cannonShader}
+    }else if(kind==5){
+     ${interceptorShader}
+    }else if(kind==0){
      if(piece==0){rr=vec3(.013,.014,.047);cc=vec3(0);}else if(piece==1){rr=vec3(.043,.0035,.020);cc=vec3(0,-.005,-.008);}else enabled=false;
     }else if(kind==1){
      // Discovery: spherical command module, long narrow spine, rear engine block.
@@ -330,7 +350,15 @@ function initRenderer(){
    vec3 hull=base*lighting;
    float edge=pow(1.0-abs(dot(normal,normalize(nc))),2.0);
    hull+=vec3(.04,.20,.28)*edge;
-   if(kind==0){
+   if(kind==5){
+    // Swept interceptor: pilot-colored body, metallic fins and two hot engines.
+    hull=mix(vec3(.12,.19,.25),playerColor,.65)*lighting;
+    if(part==1||part==5||part==6){hull=vec3(.70,.76,.82)*lighting;if(abs(local.x)>radii.x*.72)hull=vec3(.14,.85,1.0)*1.3;}
+    if(part==7)hull=vec3(.14,.52,.90)*1.4+vec3(.20,.10,.36)*edge;
+    if(part==3||part==4){hull=vec3(.32,.42,.51)*lighting;if(local.z<-radii.z*.78)hull=mix(vec3(.10,.20,.35),vec3(.25,.70,1.0)*2.2,engineBurn);}
+    if(part==8)hull=vec3(.95,.64,.24)*lighting;
+    if(part==0&&abs(local.x)>.012*size)hull+=vec3(.30,.19,.06);
+   }else if(kind==0){
     if(part==0&&local.z>radii.z*.36&&abs(local.x)<radii.x*.7)hull=vec3(.10,.55,.72)*(.7+.3*lighting);
     if(part==0&&local.z<-radii.z*.79)hull=own?mix(vec3(.05,.07,.09),vec3(1.0,.48,.12)*1.8,engineBurn):vec3(1.0,.39,.11)*1.4;
     if(part==1&&abs(local.x)>radii.x*.82)hull=vec3(.25,.94,.98);
@@ -360,6 +388,12 @@ function initRenderer(){
     if((part==2||part==3)&&abs(local.x)>radii.x*.65)hull=vec3(.15,.46,1.0);
     if(part==0&&abs(local.y)<.004*size&&local.z>.018*size)hull=vec3(.25,.45,.63);
    }
+   if(cannon&&part>=(kind==5?${interceptorHull.length}:2)){
+    int gunPart=part-(kind==5?${interceptorHull.length}:2);
+    hull=vec3(.72,.52,.29)*lighting+vec3(.10,.16,.22)*edge;
+    if(gunPart==1)hull=vec3(.42,.49,.56)*lighting;
+    if(gunPart==2&&local.z>radii.z*.3)hull=vec3(1.0,.17,.42)*(1.1+2.0*playerFiring);
+   }
    vec4 ab=data(i,5),rv=data(i,6),f=data(i,7);
    float na=-ab.z+d.x*rv.x+d.y*rv.z+d.z*f.x,nb=-ab.w+d.x*rv.y+d.y*rv.w+d.z*f.y;
    float phase=atan(-etaHit*(ab.y+h*nb),-etaHit*(ab.x+h*na));
@@ -378,7 +412,7 @@ function initRenderer(){
  function compile(type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));return shader}
  try{
   program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vertex));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragment));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);vertexArray=gl.createVertexArray();gl.bindVertexArray(vertexArray);
-  for(const n of ['resolution','Xt','Ut','Rt','Vt','Ft','Xs','Us','Rs','Vs','Fs','showGrid','sky','fleet','shipCount','observerTime','playerColor','engineBurn'])locations[n]=gl.getUniformLocation(program,n);
+  for(const n of ['resolution','Xt','Ut','Rt','Vt','Ft','Xs','Us','Rs','Vs','Fs','showGrid','sky','fleet','shipCount','observerTime','playerColor','engineBurn','playerCannon','playerFiring'])locations[n]=gl.getUniformLocation(program,n);
   skyTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,skyTexture);
   const sky=document.createElement('canvas');sky.width=Math.min(2048,gl.getParameter(gl.MAX_TEXTURE_SIZE));sky.height=sky.width/2;const ctx=sky.getContext('2d'),rand=seeded(914982);
   ctx.fillStyle='#000';ctx.fillRect(0,0,sky.width,sky.height);
@@ -478,7 +512,8 @@ function draw(active=false){
  gl.uniform1f(locations.observerTime,observer.t);
  gl.uniform2f(locations.resolution,canvas.width,canvas.height);gl.uniform1f(locations.showGrid,grid?1:0);
  gl.uniform3fv(locations.playerColor,[1,3,5].map(i=>parseInt(pilotColors[pilot].slice(i,i+2),16)/255));gl.uniform1f(locations.engineBurn,engineMode==='forward'?engineLevel:0);
- const visible=ownState?[...traffic,{id:'YOUR ROCKET',A:ownState.X,B:ownState.U,C:[ownState.R,ownState.V,ownState.F],kind:0,size:.8,hue:.95,boundRadius:.065,own:true}]:traffic;
+ gl.uniform1f(locations.playerCannon,player.upgrades?.cannon?1:0);const flash=latestPlayerBeam();gl.uniform1f(locations.playerFiring,flash?Math.max(0,1-(effectTime-flash.flashTime)/.24):0);
+ const visible=ownState?[...traffic,playerHull(ownState)]:traffic;
  gl.uniform1i(locations.shipCount,visible.length);
  visible.forEach((s,i)=>{
   row(i,0,[...s.C.map(c=>dot(observer.X,c)),s.size]);row(i,1,[...s.C.map(c=>dot(observer.U,c)),s.hue]);
@@ -529,7 +564,7 @@ function drawEnginePlume(observer,ship){
  if(engineLevel<.015)return;
  const project=local=>projectRocketPoint(observer,ship,local);
  const flicker=.86+.1*Math.sin(effectTime*81)+.06*Math.sin(effectTime*137),length=(.012+.045*engineLevel)*flicker;
- const nozzles=engineMode==='forward'?[[0,0,-.039]]:engineMode==='reverse'?[[-.017,0,.022],[.017,0,.022]]:[exhaust.map(v=>v*.021)];
+ const nozzles=engineNozzles(ship,engineMode,exhaust);
  hctx.save();hctx.globalCompositeOperation='lighter';hctx.lineCap='round';
  for(const origin of nozzles){
   const start=project(origin),end=project(origin.map((v,i)=>v+exhaust[i]*length));if(!start||!end)continue;
@@ -591,7 +626,7 @@ function drawLaserPulses(observer){
   hctx.fillStyle='#fff9ef';hctx.shadowBlur=25;hctx.beginPath();hctx.arc(x,y,4.5,0,TAU);hctx.fill();hctx.restore();
  }
  const flash=latestPlayerBeam();if(flash&&effectTime-flash.flashTime<.24){
-  const [mx,my]=projectRocketPoint(observer,player,[0,0,.04])??[width/2,height/2];
+  const [mx,my]=projectRocketPoint(observer,player,laserMuzzle(player))??[width/2,height/2];
   const strength=1-(effectTime-flash.flashTime)/.24;hctx.save();hctx.translate(mx-width/2,my-height/2);hctx.globalAlpha=strength;hctx.globalCompositeOperation='lighter';hctx.strokeStyle='#ff6179';hctx.lineWidth=6;hctx.shadowBlur=25;hctx.shadowColor='#ff2049';
   hctx.beginPath();hctx.moveTo(width/2-26,height/2);hctx.lineTo(width/2+26,height/2);hctx.moveTo(width/2,height/2-26);hctx.lineTo(width/2,height/2+26);hctx.stroke();hctx.strokeStyle='#fff3e9';hctx.lineWidth=2;hctx.stroke();hctx.restore();
  }
@@ -600,9 +635,10 @@ function formatClock(s){const m=Math.floor(s/60),sec=s%60;return `${String(m).pa
 function updateUi(){
  const observer=viewObserver(),K=add(observer.U,observer.F,-1,1),lightShift=1/Math.max(.00001,observer.X[1]*K[0]-observer.X[0]*K[1]);
  const shiftType=lightShift>1.025?'blue':lightShift<.975?'red':'neutral';$('lightShift').dataset.shift=shiftType;$('lightShift').textContent=`${shiftType==='blue'?'BLUESHIFT':shiftType==='red'?'REDSHIFT':'SPECTRUM'} ×${lightShift.toFixed(2)}`;
+ $('shipOutfit').hidden=!player.upgrades?.frame&&!player.upgrades?.cannon;$('shipOutfit').textContent=[player.upgrades?.frame?'AXIOM INTERCEPTOR':null,player.upgrades?.cannon?'LASER CANNON':null].filter(Boolean).join(' · ');
  const t=telemetry(player);$('speed').textContent=t.beta.toFixed(3);$('speedMeter').style.width=(t.beta*100)+'%';$('radius').innerHTML=t.r.toFixed(3)+' <small>L</small>';$('gamma').innerHTML=t.gamma.toFixed(3)+' <small>γ</small>';$('rho').textContent=t.chi.toFixed(3);$('clockRate').textContent=t.clock.toFixed(3);$('properClock').textContent=formatClock(player.tau*L_SECONDS);$('globalClock').textContent=formatClock(player.t*L_SECONDS);$('fps').textContent=String(Math.round(fps));
  drawMap();if($('mapDialog').open)drawExpandedMap();if(!$('flightMap').hidden)drawFlightMap();
- const latest=latestPlayerBeam(),bounces=latest?bounceCount(latest,player.t):0,clickable=$('app').classList.contains('controls-visible');$('laserStatus').textContent=gameOver?'ROCKET DESTROYED':latest?.impact?(latest.impact.ship===centralShip.id?'ABSORBED BY AXIOM':'SHIP DESTROYED'):bounces?`BOUNCES ${bounces}`:'LASER READY';$('laserStats').textContent=shots?`${shots} SHOTS · ${kills} HITS · ${clickable?'HOLD FIRE':'F TO FIRE'}`:clickable?'Hold FIRE to shoot':'F / click to fire';$('fleetLabel').textContent=`${fleet.length-destroyedCount()} VESSELS · ${destroyedCount()} DESTROYED`;
+ const latest=latestPlayerBeam(),bounces=latest?bounceCount(latest,player.t):0,clickable=$('app').classList.contains('controls-visible');$('laserStatus').textContent=gameOver?'ROCKET DESTROYED':latest?.impact?(latest.impact.ship===centralShip.id?'ABSORBED BY AXIOM':'SHIP DESTROYED'):bounces?`BOUNCES ${bounces}`:player.upgrades?.cannon?'CANNON READY':'LASER READY';$('laserStats').textContent=shots?`${shots} SHOTS · ${kills} HITS · ${clickable?'HOLD FIRE':'F TO FIRE'}`:clickable?'Hold FIRE to shoot':'F / click to fire';$('fleetLabel').textContent=`${fleet.length-destroyedCount()} VESSELS · ${destroyedCount()} DESTROYED`;
  const missions=flightProgram.getState().missions;$('missionReadout').hidden=!missions.length;
  $('missionProgress').textContent=missions.map(m=>`${m.name.toUpperCase()} · ${m.status==='complete'?'COMPLETE':m.status==='failed'?'FAILED':m.id==='trick-shot'?`${m.reflectedHits}/1 BOUNCE HIT`:`r ${m.radius.toFixed(2)} L · ${m.speed.toFixed(2)} c · ${Math.min(2,m.settled).toFixed(1)}/2 s`}`).join(' | ');
 }
@@ -690,7 +726,7 @@ function tick(now){
  if(!document.hidden&&(active||dirty))draw(active);if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
 }
 // State read-back is useful for scientific inspection and automated validation.
-window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},selectedImageShip:selectedImageShip?.id??null,camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,properAcceleration:accel,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:graphicsReady&&!contextLost,status:graphicsState,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,fleetRoster:fleet.map(s=>({ship:s.id,honoree:s.honoree})),aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
+window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],upgrades:{frame:!!player.upgrades?.frame,cannon:!!player.upgrades?.cannon},radioVisible:!$('diracRadio').hidden,music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},selectedImageShip:selectedImageShip?.id??null,camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,properAcceleration:accel,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:graphicsReady&&!contextLost,status:graphicsState,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,fleetRoster:fleet.map(s=>({ship:s.id,honoree:s.honoree})),aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
 if(document.modelContext?.registerTool){
  const lifecycle=new AbortController();
  const specs=[

@@ -1,4 +1,5 @@
 import {dot,add,scale,TAU,hullParts} from './physics.js?v=15';
+import {playerHull} from './ship-upgrades.js?v=27';
 const positive=v=>((v%TAU)+TAU)%TAU;
 export function laserEvent(beam,age){
  const c=Math.cos(age),s=Math.sin(age),q=beam.Q.map((v,i)=>v*c+beam.D[i]*s),q0=Math.abs(q[0]);
@@ -49,8 +50,8 @@ function nextImpact(beam,now){
 // Its launch pulse is armed only after leaving the emitting hull.
 function playerImpact(beam,p,now){
  if(beam.impact||now<=beam.t)return null;
- const ship={id:'YOUR ROCKET',A:p.X,B:p.U,C:[p.R,p.V,p.F],kind:0,size:.8,isPlayer:true};
- const inside=t=>{const X=laserEvent(beam,t-beam.t);return X&&hullParts(0).some(([r,c])=>ship.C.reduce((sum,e,i)=>sum+((dot(X,e)-c[i]*ship.size)/(r[i]*ship.size))**2,0)<=1)};
+ const ship=playerHull(p);
+ const inside=t=>{const X=laserEvent(beam,t-beam.t);return X&&ship.parts.some(([r,c])=>ship.C.reduce((sum,e,i)=>sum+((dot(X,e)-c[i]*ship.size)/(r[i]*ship.size))**2,0)<=1)};
  if(!beam.playerArmed){
   if(inside(Math.max(p.t,beam.t))){if(!inside(now))beam.playerArmed=true;return null}
   beam.playerArmed=true;
@@ -58,8 +59,8 @@ function playerImpact(beam,p,now){
  const start=Math.max(p.t,beam.t);if(inside(start))return {beam,ship,event:laserEvent(beam,start-beam.t),time:start};
  // Parallel-transported frame vectors remain constant while coasting.
  // Reuse exact intersections until a turn or burn changes that worldtube.
- if(!beam.playerFrame||ship.C.some((c,i)=>c!==beam.playerFrame[i])){
-  const probe={...beam,candidates:[]};addHullCandidates(probe,[ship]);beam.playerCandidates=probe.candidates;beam.playerFrame=ship.C;
+ if(!beam.playerFrame||beam.playerParts!==ship.parts||ship.C.some((c,i)=>c!==beam.playerFrame[i])){
+  const probe={...beam,candidates:[]};addHullCandidates(probe,[ship]);beam.playerCandidates=probe.candidates;beam.playerFrame=ship.C;beam.playerParts=ship.parts;
  }
  let first=null;
  for(const c of beam.playerCandidates){
