@@ -1,10 +1,13 @@
 import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=10';
 import {ResolutionController} from './resolution.js?v=6';
 import {ArcadeScore} from './music.js?v=10';
-import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=10';
+import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=11';
+import {TrafficFire,advanceTraffic} from './traffic.js?v=11';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
 const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,depth:false,stencil:false,powerPreference:'high-performance'});
-const fleet=makeFleet(72),L_SECONDS=30,keys=new Set();
+const fleet=makeFleet(72),L_SECONDS=30,keys=new Set(),trafficFire=new TrafficFire(fleet);
+const latestPlayerBeam=()=>{for(let i=beams.length-1;i>=0;i--)if(beams[i].owner!=='traffic')return beams[i];return null};
+const destroyedCount=()=>fleet.filter(s=>Number.isFinite(s.deathTime)).length;
 let player=initialPlayer(),paused=false,grid=true,warp=1,accel=1.5,last=performance.now(),width=1,height=1,frame=0,lastUi=0,fps=60,drag=null,noticeTimer;
 let gameOver=false,deathAnimation=0;
 let launched=false,dirty=true,pendingFence=null,musicWanted=true,effectTime=0,renderedFrames=0,renderedTraffic=72,contextLost=false;const score=new ArcadeScore();
@@ -25,7 +28,7 @@ function notify(s){$('notice').textContent=s;$('notice').classList.add('show');c
 function clearControls(){drag=null;gpuSampleValid=false;resolution.resetSamples();engineLevel=0;score.setThrust(0);dirty=true;keys.clear();touchHolds.clear();document.querySelectorAll('[data-key]').forEach(b=>b.classList.remove('pressed'))}
 function held(code){return keys.has(code)||[...touchHolds.values()].some(b=>b.dataset.key===code)}
 function setPause(value){paused=value;clearControls();$('pauseOverlay').hidden=!value;$('pauseButton').innerHTML=value?'▷ <span>Resume</span>':'Ⅱ <span>Pause</span>';$('touchPause').textContent=value?'RESUME':'PAUSE';$('touchPause').setAttribute('aria-pressed',String(value));last=performance.now()}
-function reset(){gameOver=false;deathAnimation=0;$('gameOverScreen').hidden=true;setPause(false);player=initialPlayer();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
+function reset(){gameOver=false;deathAnimation=0;$('gameOverScreen').hidden=true;setPause(false);player=initialPlayer();trafficFire.reset();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
 function fire(){if(contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]')||player.tau-lastShot<.012)return false;lastShot=player.tau;const beam=createLaser(player,fleet);beam.flashTime=effectTime;beams.push(beam);shots++;score.laser();drawLaserPulses(chase?chaseObserver(player):player);dirty=true;return true}
 $('fireButton').onclick=fire;
 $('retryButton').onclick=()=>{reset();canvas.focus({preventScroll:true})};
@@ -223,7 +226,11 @@ function initRenderer(){
   }
   float vignette=1.0-.27*pow(length(screen)/1.1,1.4);
   color*=max(.55,vignette);
-  frag=vec4(pow(color,vec3(.85)),1);
+  // A fixed ordered dither and a 6-bit palette evoke early arcade hardware.
+  // Keep full spatial resolution: the ray intersections remain unchanged.
+  vec3 displayColor=pow(color,vec3(.85));
+  float dither=mod(floor(gl_FragCoord.x)+2.0*floor(gl_FragCoord.y),4.0)/4.0;
+  frag=vec4(floor(clamp(displayColor,0.0,1.0)*63.0+dither)/63.0,1);
  }`;
  function compile(type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));return shader}
  try{
@@ -378,12 +385,13 @@ function drawLaserPulses(observer){
    points.push(Math.abs(a-width/2)>width*3||Math.abs(b-height/2)>height*3?null:[a,b]);
   }
   points.push([x,y]);hctx.save();hctx.globalCompositeOperation='lighter';hctx.lineCap='round';hctx.lineJoin='round';
-  for(const [lineWidth,color,blur] of [[15,'#ff24434d',24],[7,'#ff4a67',16],[2.5,'#fff4ee',7]]){
-   hctx.strokeStyle=color;hctx.lineWidth=lineWidth;hctx.shadowBlur=blur;hctx.shadowColor='#ff3356';hctx.beginPath();let previous=null;for(const p of points){if(!p){previous=null;continue}if(!previous||Math.hypot(p[0]-previous[0],p[1]-previous[1])>height*.5)hctx.moveTo(...p);else hctx.lineTo(...p);previous=p}hctx.stroke();
+  const traffic=beam.owner==='traffic',glow=traffic?'#35ff9a':'#ff3356';
+  for(const [lineWidth,color,blur] of traffic?[[15,'#24ff914d',24],[7,'#50ffa5',16],[2.5,'#effff4',7]]:[[15,'#ff24434d',24],[7,'#ff4a67',16],[2.5,'#fff4ee',7]]){
+   hctx.strokeStyle=color;hctx.lineWidth=lineWidth;hctx.shadowBlur=blur;hctx.shadowColor=glow;hctx.beginPath();let previous=null;for(const p of points){if(!p){previous=null;continue}if(!previous||Math.hypot(p[0]-previous[0],p[1]-previous[1])>height*.5)hctx.moveTo(...p);else hctx.lineTo(...p);previous=p}hctx.stroke();
   }
   hctx.fillStyle='#fff9ef';hctx.shadowBlur=25;hctx.beginPath();hctx.arc(x,y,4.5,0,TAU);hctx.fill();hctx.restore();
  }
- const flash=beams.at(-1);if(flash&&effectTime-flash.flashTime<.24){
+ const flash=latestPlayerBeam();if(flash&&effectTime-flash.flashTime<.24){
   const nose=add(player.X,player.F,Math.cosh(.04),Math.sinh(.04)),z=dot(nose,observer.F);
   const mx=z>.001?width/2+dot(nose,observer.R)/z/1.4*height:width/2,my=z>.001?height/2-dot(nose,observer.V)/z/1.4*height:height/2;
   const strength=1-(effectTime-flash.flashTime)/.24;hctx.save();hctx.translate(mx-width/2,my-height/2);hctx.globalAlpha=strength;hctx.globalCompositeOperation='lighter';hctx.strokeStyle='#ff6179';hctx.lineWidth=6;hctx.shadowBlur=25;hctx.shadowColor='#ff2049';
@@ -396,7 +404,7 @@ function updateUi(){
  const shiftType=lightShift>1.025?'blue':lightShift<.975?'red':'neutral';$('lightShift').dataset.shift=shiftType;$('lightShift').textContent=`${shiftType==='blue'?'BLUESHIFT':shiftType==='red'?'REDSHIFT':'SPECTRUM'} ×${lightShift.toFixed(2)}`;
  const t=telemetry(player);$('speed').textContent=t.beta.toFixed(3);$('speedMeter').style.width=(t.beta*100)+'%';$('radius').innerHTML=t.r.toFixed(3)+' <small>L</small>';$('gamma').innerHTML=t.gamma.toFixed(3)+' <small>γ</small>';$('rho').textContent=t.chi.toFixed(3);$('clockRate').textContent=t.clock.toFixed(3);$('properClock').textContent=formatClock(player.tau*L_SECONDS);$('globalClock').textContent=formatClock(player.t*L_SECONDS);$('fps').textContent=String(Math.round(fps));
  drawMap();if($('mapDialog').open)drawExpandedMap();
- const latest=beams.at(-1),bounces=latest?bounceCount(latest,player.t):0,clickable=$('app').classList.contains('controls-visible');$('laserStatus').textContent=gameOver?'ROCKET DESTROYED':latest?.impact?'SHIP DESTROYED':bounces?`BOUNCES ${bounces}`:'LASER READY';$('laserStats').textContent=shots?`${shots} SHOTS · ${kills} HITS · ${clickable?'HOLD FIRE':'F TO FIRE'}`:clickable?'Hold FIRE to shoot':'F / click to fire';$('fleetLabel').textContent=`${fleet.length-kills} VESSELS · ${kills} DESTROYED`;
+ const latest=latestPlayerBeam(),bounces=latest?bounceCount(latest,player.t):0,clickable=$('app').classList.contains('controls-visible');$('laserStatus').textContent=gameOver?'ROCKET DESTROYED':latest?.impact?'SHIP DESTROYED':bounces?`BOUNCES ${bounces}`:'LASER READY';$('laserStats').textContent=shots?`${shots} SHOTS · ${kills} HITS · ${clickable?'HOLD FIRE':'F TO FIRE'}`:clickable?'Hold FIRE to shoot':'F / click to fire';$('fleetLabel').textContent=`${fleet.length-destroyedCount()} VESSELS · ${destroyedCount()} DESTROYED`;
 }
 function drawExpandedMap(){
  const big=$('expandedMap'),r=big.getBoundingClientRect(),dpr=Math.min(devicePixelRatio||1,2),w=Math.max(1,Math.round(r.width*dpr)),h=Math.max(1,Math.round(w*360/560));
@@ -419,7 +427,7 @@ c.clearRect(0,0,560,360);c.lineWidth=1;
  }
  for(const ship of fleet){if(Number.isFinite(ship.deathTime))continue;const [x,y]=mapPoint(geodesicAt(ship,player.t).X);c.fillStyle=ship.boundaryOrbit?'#e9bc79':'#80a6e090';c.fillRect(x-2,y-2,ship.boundaryOrbit?6:4,ship.boundaryOrbit?6:4)}
  for(const beam of beams.slice(-8)){
-  const age=Math.max(0,Math.min(player.t,beam.impact?.time??Infinity)-beam.t),start=Math.max(0,age-Math.PI);c.beginPath();for(let j=0;j<=60;j++){const s=start+(age-start)*j/60,q=beam.Q.map((v,i)=>v*Math.cos(s)+beam.D[i]*Math.sin(s)),x=280+q[1]/(1+Math.abs(q[0]))*156,y=180-q[3]/(1+Math.abs(q[0]))*156;if(j)c.lineTo(x,y);else c.moveTo(x,y)}c.strokeStyle='#ff667499';c.lineWidth=1.5;c.stroke();c.lineWidth=1;
+  const age=Math.max(0,Math.min(player.t,beam.impact?.time??Infinity)-beam.t),start=Math.max(0,age-Math.PI);c.beginPath();for(let j=0;j<=60;j++){const s=start+(age-start)*j/60,q=beam.Q.map((v,i)=>v*Math.cos(s)+beam.D[i]*Math.sin(s)),x=280+q[1]/(1+Math.abs(q[0]))*156,y=180-q[3]/(1+Math.abs(q[0]))*156;if(j)c.lineTo(x,y);else c.moveTo(x,y)}c.strokeStyle=beam.owner==='traffic'?'#50ffa599':'#ff667499';c.lineWidth=1.5;c.stroke();c.lineWidth=1;
  }
  const [x,y]=mapPoint(player.X);c.beginPath();c.arc(x,y,14,0,TAU);c.strokeStyle='#63e5e660';c.stroke();c.beginPath();c.arc(x,y,5,0,TAU);c.fillStyle='#63e5e6';c.fill();c.fillStyle='#bdffff';c.font='10px "Arcade",monospace';c.fillText('YOU',x+19,y+5);
 }
@@ -441,8 +449,8 @@ function tick(now){
   const h=elapsed*warp/L_SECONDS,n=Math.max(1,Math.ceil(h/.004)),thrust=((held('KeyW')?1:0)-(held('KeyS')?1:0))*accel;
   for(let i=0;i<n;i++){
    advance(player,h/n,thrust,held('Space')?accel:false,(segment,endTime)=>{
-    const impacts=advanceLasers(beams,endTime,segment);
-    for(const hit of impacts){if(hit.ship.isPlayer){endFlight();return {stopAt:hit.time}}kills++;lastImpact=hit;dirty=true}
+    const impacts=advanceTraffic(trafficFire,beams,endTime,segment);
+    for(const hit of impacts){if(hit.ship.isPlayer){endFlight();return {stopAt:hit.time}}if(hit.beam.owner!=='traffic')kills++;lastImpact=hit;dirty=true}
    });
    if(gameOver){$('gameOverStats').textContent=`${formatClock(player.tau*L_SECONDS)} PROPER TIME · ${kills} SHIPS DESTROYED`;break}
    if(!Number.isFinite(player.X[0])||Math.abs(dot(player.X,player.X)+1)>1e-3){setPause(true);notify('Numerical precision limit reached near the boundary. Reset to continue.');break}
@@ -454,7 +462,7 @@ function tick(now){
  if(active||dirty)draw(active);if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
 }
 // State read-back is useful for scientific inspection and automated validation.
-window.adsFlight={getState:()=>({launched,gameOver,storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:!!program&&!contextLost,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,aliveShips:fleet.length-kills,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
+window.adsFlight={getState:()=>({launched,gameOver,storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:!!program&&!contextLost,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
 if(document.modelContext?.registerTool){
  const lifecycle=new AbortController();
  const specs=[
