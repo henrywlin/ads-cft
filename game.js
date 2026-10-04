@@ -1,6 +1,6 @@
-import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=20';
+import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=21';
 import {ResolutionController} from './resolution.js?v=6';
-import {ArcadeScore} from './music.js?v=10';
+import {ArcadeScore} from './music.js?v=21';
 import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=15';
 import {TrafficFire,advanceTraffic} from './traffic.js?v=15';
 import {burnCommand} from './flight-controls.js?v=15';
@@ -57,11 +57,47 @@ function setCamera(view){if(!['chase','cockpit'].includes(view))throw Error('Unk
 $('cameraButton').onclick=()=>setCamera(chase?'cockpit':'chase');
 async function setMusic(value){musicWanted=value;$('launchSound').textContent=value?'SOUND ON':'SOUND OFF';$('launchSound').setAttribute('aria-pressed',String(value));$('musicButton').innerHTML=`<span>Sound ${value?'on':'off'}</span>`;$('musicButton').setAttribute('aria-pressed',String(value));if(value){try{await score.start()}catch{notify('Audio could not start. Toggle Sound to try again.')}}else score.stop()}
 const introPages=[...document.querySelectorAll('[data-intro-paragraph]')];let introStep=0;
-function renderIntro(){introPages.forEach((p,i)=>p.hidden=i!==introStep);$('introProgress').textContent=`${introStep+1} / ${introPages.length}`;$('introScreen').setAttribute('aria-describedby',introPages[introStep].id);$('introContinue').textContent=introStep===introPages.length-1?'BEGIN FLIGHT →':'NEXT →';document.querySelector('.intro-body').scrollTop=0}
-function nextIntro(){if($('introScreen').hidden)return;if(++introStep===introPages.length)beginFlight();else renderIntro()}
+const introMotion=matchMedia('(prefers-reduced-motion: reduce)');
+let introFrame=0,introTyping=false,introLetters=[],introRevealed=0;
+function introControls(){
+ $('introContinue').textContent=introTyping?'SHOW TEXT':introStep===introPages.length-1?'BEGIN FLIGHT →':'NEXT →';
+ $('introClose').setAttribute('aria-label',introTyping?'Show the full paragraph':'Close this paragraph and continue');
+ $('introHint').textContent=introTyping?'ENTER OR × TO SHOW TEXT':'ENTER OR × TO CONTINUE';
+}
+function finishIntroTyping(){
+ cancelAnimationFrame(introFrame);introLetters[introRevealed-1]?.classList.remove('intro-caret');
+ while(introRevealed<introLetters.length)introLetters[introRevealed++].style.visibility='visible';
+ introTyping=false;introControls();
+}
+function typeIntro(paragraph){
+ cancelAnimationFrame(introFrame);introLetters=[];introRevealed=0;
+ // Keep the complete text accessible and reserve its layout while the visual
+ // copy types. Screen readers receive one paragraph, not letter-by-letter updates.
+ const readable=document.createElement('span'),visual=document.createElement('span');
+ readable.className='intro-readable';readable.id=`${paragraph.id}Text`;readable.textContent=paragraph.textContent;
+ visual.setAttribute('aria-hidden','true');visual.append(...paragraph.childNodes);
+ const walker=document.createTreeWalker(visual,NodeFilter.SHOW_TEXT),nodes=[];
+ while(walker.nextNode())nodes.push(walker.currentNode);
+ for(const node of nodes){const fragment=document.createDocumentFragment();for(const character of node.textContent){const letter=document.createElement('span');letter.className='intro-letter';letter.textContent=character;introLetters.push(letter);fragment.append(letter)}node.replaceWith(fragment)}
+ paragraph.replaceChildren(readable,visual);$('introScreen').setAttribute('aria-describedby',readable.id);
+ introTyping=true;introControls();
+ if(introMotion.matches){finishIntroTyping();return}
+ const started=performance.now();
+ function tick(now){
+  introLetters[introRevealed-1]?.classList.remove('intro-caret');
+  const count=Math.min(introLetters.length,1+Math.floor((now-started)/25));
+  while(introRevealed<count)introLetters[introRevealed++].style.visibility='visible';
+  if(introRevealed===introLetters.length){finishIntroTyping();return}
+  introLetters[introRevealed-1]?.classList.add('intro-caret');introFrame=requestAnimationFrame(tick);
+ }
+ introFrame=requestAnimationFrame(tick);
+}
+introMotion.addEventListener('change',()=>{if(introMotion.matches&&introTyping)finishIntroTyping()});
+function renderIntro(playSound=true){introPages.forEach((p,i)=>p.hidden=i!==introStep);$('introProgress').textContent=`${introStep+1} / ${introPages.length}`;typeIntro(introPages[introStep]);document.querySelector('.intro-body').scrollTop=0;if(playSound)score.incoming()}
+function nextIntro(){if($('introScreen').hidden)return;if(introTyping){finishIntroTyping();return}if(++introStep===introPages.length)beginFlight();else renderIntro()}
 function beginFlight(){$('introScreen').close();$('introScreen').hidden=true;$('app').inert=false;document.body.classList.remove('story-open');last=performance.now();canvas.focus({preventScroll:true});notify(`Welcome aboard, ${pilotNames[pilot]} · W to burn, arrow keys to steer`)}
 $('introContinue').onclick=nextIntro;$('introClose').onclick=nextIntro;$('introScreen').addEventListener('cancel',e=>{e.preventDefault();nextIntro()});
-function launch(){if(launched||!graphicsReady)return;launched=true;$('launchScreen').hidden=true;introStep=0;renderIntro();$('introScreen').hidden=false;$('introScreen').showModal();clearControls();document.body.classList.add('story-open');$('introClose').focus({preventScroll:true});last=performance.now();dirty=true;if(musicWanted)void setMusic(true)}
+function launch(){if(launched||!graphicsReady)return;launched=true;$('launchScreen').hidden=true;introStep=0;renderIntro(false);$('introScreen').hidden=false;$('introScreen').showModal();clearControls();document.body.classList.add('story-open');$('introClose').focus({preventScroll:true});last=performance.now();dirty=true;if(musicWanted)void setMusic(true).then(()=>{if(!$('introScreen').hidden)score.incoming()})}
 $('launchButton').onclick=launch;$('launchSound').onclick=()=>void setMusic(!musicWanted);$('musicButton').onclick=()=>void setMusic(!musicWanted);
 function openDialog(id){clearControls();$(id).showModal()}
 function offerMission(id){

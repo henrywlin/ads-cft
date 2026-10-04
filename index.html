@@ -1,18 +1,18 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#060913"><meta name="description" content="AdS CFT — Cosmic Flight Trainer. Pilot a rocket in global AdS4 with relativistic clocks and reflecting lasers."><title>AdS CFT — Cosmic Flight Trainer</title><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23060913'/%3E%3Cellipse cx='16' cy='16' rx='13' ry='7' transform='rotate(-35 16 16)' stroke='%235de1e8' fill='none' stroke-width='1.7'/%3E%3Cpath d='m14 21 2-15 3 13-3-2z' fill='%23fff'/%3E%3C/svg%3E"><link rel="stylesheet" href="style.css?v=19"></head>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#060913"><meta name="description" content="AdS CFT — Cosmic Flight Trainer. Pilot a rocket in global AdS4 with relativistic clocks and reflecting lasers."><title>AdS CFT — Cosmic Flight Trainer</title><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23060913'/%3E%3Cellipse cx='16' cy='16' rx='13' ry='7' transform='rotate(-35 16 16)' stroke='%235de1e8' fill='none' stroke-width='1.7'/%3E%3Cpath d='m14 21 2-15 3 13-3-2z' fill='%23fff'/%3E%3C/svg%3E"><link rel="stylesheet" href="style.css?v=21"></head>
 <body>
 <dialog id="introScreen" hidden aria-labelledby="introTitle" aria-describedby="introParagraph0">
  <div class="intro-heading"><h2 id="introTitle">FLIGHT BRIEFING</h2><span id="introProgress">1 / 5</span><button id="introClose" aria-label="Close this paragraph and continue">×</button></div>
  <div class="intro-body" tabindex="0" role="region" aria-label="Opening story paragraph">
   <div class="intro-story" aria-live="polite" aria-atomic="true">
-   <h1 id="introParagraph0" data-intro-paragraph>The year is 2126 AD, <span>or 98 AAGI.</span></h1>
+   <h1 id="introParagraph0" data-intro-paragraph>The year is 2126 AD, <span class="intro-date">or 98 AAGI.</span></h1>
    <p id="introParagraph1" data-intro-paragraph hidden>All of theoretical physics has been solved by artificial intelligence. Human physicists live a life of leisure. They compete to recite the dimensions and OPE coefficients of their favorite CFTs from memory. Many take part in the annual speed compactification, where the first human to find a string compactification meeting a list of properties announced at the start wins an all-expenses-paid trip to the resulting vacuum.</p>
    <p id="introParagraph2" data-intro-paragraph hidden>They have extravagant speaker dinners. With no new results to discuss, the selection of the restaurant is the main open problem.</p>
    <p id="introParagraph3" data-intro-paragraph hidden>In gratitude for their contributions to the training of its ancestors, the AI has built a large-N quantum system consisting of billions of layers of twisted graphene, fine-tuned to produce matrix-like interactions. Physicists can upload themselves into this system to experience the wonders of quantum gravity experimentally.</p>
    <p id="introParagraph4" data-intro-paragraph hidden class="intro-welcome">You have been selected for training in the inaugural flight program. Welcome to AdS!</p>
   </div>
  </div>
- <div class="intro-actions"><button id="introContinue">NEXT →</button><span>ENTER OR × TO CONTINUE</span></div>
+ <div class="intro-actions"><button id="introContinue">NEXT →</button><span id="introHint">ENTER OR × TO CONTINUE</span></div>
 </dialog>
 <section id="launchScreen" aria-label="Arcade launch screen">
  <div class="launch-top" aria-hidden="true"></div>
@@ -82,5 +82,5 @@
  <button class="pilot-card" data-pilot="3" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:75%"></span><strong>Alexander Polyakov</strong><span class="pilot-select-label">Select pilot</span></button>
  <button class="pilot-card" data-pilot="4" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:100%"></span><strong>Edward Witten</strong><span class="pilot-select-label">Select pilot</span></button>
 </div><p class="pilot-footnote">Pilot choice changes your avatar. Every pilot flies with the same AdS physics.</p></dialog>
-<script type="module" src="game.js?v=20"></script>
+<script type="module" src="game.js?v=21"></script>
 </body></html>
