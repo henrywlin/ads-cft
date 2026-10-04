@@ -1,5 +1,5 @@
 const assert=require('node:assert/strict');
-const {chromium,webkit}=require('playwright');
+const {chromium,webkit}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const engine=process.argv[2]||'chromium';
 (async()=>{
  const browser=await(engine==='webkit'?webkit:chromium).launch(engine==='webkit'?{headless:true}:{headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||'/usr/bin/chromium',args:['--no-sandbox','--enable-unsafe-swiftshader','--disable-dev-shm-usage']});
@@ -16,7 +16,7 @@ const engine=process.argv[2]||'chromium';
    source+=`\nwindow.__imageQa={
     render(){gl.finish();dirty=true;draw(false);gl.finish();pollFrame(false)},
     fixture(camera){
-     reset();trafficFire.enabled=false;flightProgram.nextOffer=()=>null;setCamera(camera);
+     reset();centralShip.visualRemoved=true;trafficFire.enabled=false;flightProgram.nextOffer=()=>null;setCamera(camera);
      const X=eventAt([0,0,.6]),m=staticFrame(X);player={X,U:m.T,R:m.E[0],V:m.E[1],F:m.E[2],t:0,tau:0};
      const A=eventAt([0,0,0]),f=staticFrame(A);fleet.splice(0,fleet.length,{id:'STARSHIP NEWTON',A,B:f.T,C:f.E,kind:0,size:1,hue:.5,boundRadius:.065});
      this.render();return this.point(true);
@@ -26,7 +26,7 @@ const engine=process.argv[2]||'chromium';
     label(){return imageFrame.labels[0]},
     turnWithoutRendering(){rotate(player,.7,-.3,0)},
     destroy(){fleet[0].deathTime=player.t;this.render()},
-    populated(){fleet.splice(0,fleet.length,...makeFleet());player=initialPlayer();setCamera('chase');this.render()},
+    populated(){centralShip.visualRemoved=false;fleet.splice(0,fleet.length,...makeFleet());player=initialPlayer();setCamera('chase');this.render()},
     async gpuCheck(){
      const ready=async()=>{for(let i=0;i<100;i++){gl.finish();if(pollFrame(false))return;await new Promise(resolve=>setTimeout(resolve,10))}throw Error('GPU did not finish the diagnostic frame')};await ready();
      const loc=gl.getUniformLocation(program,'imageAudit');gl.uniform1f(loc,1);this.render();await ready();

@@ -48,9 +48,8 @@ function nextImpact(beam,now){
 }
 // The accelerated rocket is tested on every exact free-drift part of a burn.
 // Its launch pulse is armed only after leaving the emitting hull.
-function playerImpact(beam,p,now){
+function playerImpact(beam,p,now,ship){
  if(beam.impact||now<=beam.t)return null;
- const ship=playerHull(p);
  const inside=t=>{const X=laserEvent(beam,t-beam.t);return X&&ship.parts.some(([r,c])=>ship.C.reduce((sum,e,i)=>sum+((dot(X,e)-c[i]*ship.size)/(r[i]*ship.size))**2,0)<=1)};
  if(!beam.playerArmed){
   if(inside(Math.max(p.t,beam.t))){if(!inside(now))beam.playerArmed=true;return null}
@@ -70,7 +69,8 @@ function playerImpact(beam,p,now){
  return first;
 }
 export function advanceLasers(beams,globalTime,playerSegment=null){
- const impacts=[],ownHits=playerSegment?beams.map(b=>playerImpact(b,playerSegment,globalTime)).filter(Boolean):[];
+ const impacts=[],ownHits=[],ship=playerSegment&&beams.length?playerHull(playerSegment):null;
+ if(ship)for(const beam of beams){const hit=playerImpact(beam,playerSegment,globalTime,ship);if(hit)ownHits.push(hit)}
  for(;;){
   let first=null;for(const beam of beams){const hit=nextImpact(beam,globalTime);if(hit&&(!first||hit.time<first.time))first=hit}
   for(const hit of ownHits)if(!hit.beam.impact&&(!first||hit.time<first.time))first=hit;

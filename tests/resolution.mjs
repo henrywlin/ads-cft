@@ -14,3 +14,9 @@ const mobile=new ResolutionController({coarse:true});mobile.configure(390,458,2,
 const software=new ResolutionController({software:true});software.configure(1738,1016,2);assert.equal(software.budget,45000);for(let i=0;i<200;i++)software.observe(100);assert.equal(software.budget,45000);
 const interrupted=new ResolutionController();interrupted.configure(1280,800);for(let i=0;i<3;i++)interrupted.observe(100);interrupted.observe(2000,{active:false});interrupted.observe(100);assert.equal(interrupted.budget,interrupted.ceiling);
 console.log('PASS: idle gaps ignored, resolution floor, automatic recovery, fixed graphics presets, mobile and software budgets.');
+
+const paced=new ResolutionController();paced.configure(1280,800);const start=paced.budget;
+for(let i=0;i<5;i++)paced.observe(50);assert.equal(paced.budget,start,'Ignore short rendering spikes');
+paced.observe(50);assert.ok(paced.budget<start,'Respond to sustained sub-24-fps frames');
+const reduced=paced.budget;for(let i=0;i<120;i++)paced.observe(30);assert.equal(paced.budget,reduced,'Require headroom before restoring detail');
+for(let i=0;i<60;i++)paced.observe(16);assert.ok(paced.budget>reduced);

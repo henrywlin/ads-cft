@@ -113,9 +113,10 @@ export function retarded(ship,p,reflected=false){
   return images.sort((a,b)=>a.delay-b.delay)[0]??null;
 }
 // Exact aberrated silhouette of a sphere enclosing the ship's complete worldtube.
-export function shipBounds(ship,p,pixelPadding=.003,reflected=false){
+export function shipBounds(ship,p,pixelPadding=.003,reflected=false,separate=false){
   const radius=ship.boundRadius*ship.size,r=Math.hypot(...ship.C.map(c=>dot(p.X,c)));
-  if(r<=radius)return [0,0,100,0];
+  const empty=[1000,1000,0,0];
+  if(r<=radius){const full=[0,0,100,0];return separate?[full,reflected?full:empty]:full}
   const R=Math.hypot(1,r),a=-dot(p.X,ship.A),b=-dot(p.X,ship.B);
   const G=add(ship.A,ship.B,a/R,b/R),Z=add(ship.A,ship.B,-b/R,a/R);
   const H=add(p.X,G,R/r,-1/r),sa=radius*R/(r*Math.hypot(1,radius)),ca=Math.sqrt(Math.max(0,1-sa*sa));
@@ -127,7 +128,8 @@ export function shipBounds(ship,p,pixelPadding=.003,reflected=false){
    const limits=i=>{const mid=axis[i]*axis[2]/den/1.4,half=sin*Math.sqrt(Math.max(0,axis[i]*axis[i]+axis[2]*axis[2]-sin*sin))/den/1.4;return [mid,half]};
    const x=limits(0),y=limits(1);return [x[0],y[0],Math.max(x[1],y[1])+pixelPadding,0];
   }
-  const first=cap(1);if(!reflected)return first;const second=cap(-1);
+  const first=cap(1);if(!reflected)return separate?[first,empty]:first;const second=cap(-1);
+  if(separate)return [first,second];
   if(first[2]>=100||second[2]>=100)return [0,0,100,0];if(first[0]===1000)return second;if(second[0]===1000)return first;
   const xmin=Math.min(first[0]-first[2],second[0]-second[2]),xmax=Math.max(first[0]+first[2],second[0]+second[2]),ymin=Math.min(first[1]-first[2],second[1]-second[2]),ymax=Math.max(first[1]+first[2],second[1]+second[2]);
   return [(xmin+xmax)/2,(ymin+ymax)/2,Math.max(xmax-xmin,ymax-ymin)/2,0];
