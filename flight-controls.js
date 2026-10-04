@@ -1,4 +1,4 @@
-import {dot,staticFrame} from './physics.js?v=10';
+import {dot,staticFrame} from './physics.js?v=15';
 // Exhaust is always the negative of the proper-acceleration direction.
 export function burnCommand(p,forward,reverse,braking,accel){
  const signed=Number(forward)-Number(reverse),force=[0,0,0];let thrust=0,brake=false,mode='forward';

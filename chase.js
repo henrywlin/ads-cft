@@ -1,4 +1,4 @@
-import {dot,add,TAU} from './physics.js?v=10';
+import {dot,add,TAU} from './physics.js?v=15';
 // Small, critically damped camera travel reveals acceleration in chase view.
 // It does not modify the rocket. Units are L and the rocket's proper time L/c.
 export class ChaseCamera {
