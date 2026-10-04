@@ -24,7 +24,7 @@ const engine=process.argv[2]||'chromium';
      const ship={A,B,C,id:'SPECTRAL TEST',size:1,kind:0,hue:.5,boundRadius:.065};fleet.splice(0,fleet.length,ship);chase=false;player.t=0;this.center();player.tau=0;const view=retarded(ship,player,reflected);if(view.dir[2]<0)player.F=scale(player.F,-1);
      const loc=gl.getUniformLocation(program,'auditShift');gl.uniform1f(loc,1);this.render();const pixel=new Uint8Array(4);gl.readPixels(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);gl.uniform1f(loc,0);
      return {pixel:[...pixel],measured:pixel[0]/255*8,expected:view.shift,reflected};
-    },restore(){fleet.splice(0,fleet.length,...makeFleet(72));chase=true;reset();this.isolate()}
+    },restore(){fleet.splice(0,fleet.length,...makeFleet());chase=true;reset();this.isolate()}
    };`;
    await route.fulfill({response,body:source});
   });

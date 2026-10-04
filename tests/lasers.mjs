@@ -17,7 +17,7 @@ const immediate=advanceLasers([insideBeam],absorptionTime);assert.equal(immediat
 assert.equal(bounceCount(insideBeam,absorptionTime+TAU),0);assert.equal(advanceLasers([insideBeam],absorptionTime+TAU).length,0);
 const outsideShip=absorptionShip(),outsideBeam=createLaser(absorptionPlayer(-1),[outsideShip]);
 assert.ok(outsideBeam.candidates.length);assert.ok(outsideBeam.candidates.every(hit=>hit.age>0));assert.equal(advanceLasers([outsideBeam],absorptionTime).length,0);assert.ok(!Number.isFinite(outsideShip.deathTime));
-const fleet=makeFleet(72);
+const fleet=makeFleet();
 for(const ship of fleet.slice(-2))for(const t of [0,.8,3,13])close(norm3(geodesicAt(ship,t).X.slice(2)),norm3(ship.A.slice(2)),1e-8);
 for(const ship of fleet.slice(0,30)){
  const view=retarded(ship,p),K=add(p.X,view.X,1,-1),freq=-dot(K,p.U),P=scale(K,1/freq),direction=add(P,p.U,1,-1),b=createLaser(p,[ship],direction);

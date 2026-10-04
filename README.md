@@ -2,6 +2,8 @@
 
 Cosmic Flight Trainer.
 
+The 48 traffic ships each honor a historical physicist, using **CSV** (Cosmic Survey Vessel) callsigns such as CSV Einstein, CSV Noether and CSV Wu. [See all 48 ships and their honorees](FLEET.md). Names persist through resets and identify direct/reflected images, bank-shot targets and laser impacts. The player’s rocket is additional to the 48 traffic ships.
+
 The home screen selects your pilot. Use arrow keys to move between pilots; selection wraps at either end, and Tab also reaches the selected pilot and launch controls. Launch Flight or Enter opens five briefing popups over the visible game, one paragraph per popup. The opening reads ‘The year is 2126 AD, or 98 AAGI.’ Enter or the × dismisses the current paragraph and opens the next; the last dismissal starts flight. Next/Begin Flight buttons and Escape also advance the briefing. Longer paragraphs scroll inside the popup on smaller screens; the close and continue controls remain visible. Ship clocks stay stopped while you read.
 
 The retro launch screen focuses on pilot selection, with launch and sound controls. Audio starts on a user gesture; the cockpit Sound button mutes it.
@@ -24,7 +26,7 @@ The metric is `ds² = −(1+r²/L²)c²dt² + dr²/(1+r²/L²) + r²dΩ₂²`. D
 
 The ambient embedding has signature (−,−,+,+,+) and `X·X=−1`. The player's proper clock drives the simulation; global time is unwrapped from the embedding's timelike plane. Traffic is evaluated at that global time, with nonzero conserved angular momentum. Coasting is exact: `X(s)=A cos(s)+B sin(s)`. Rocket acceleration uses second-order boost–geodesic–boost splitting, with maximum proper step 0.004. The ship's frame is Fermi–Walker transported under burns and parallel transported in free fall. There is no artificial velocity damping.
 
-Two of the 72 ships follow exact circular geodesics at r=10L and r=20L, highlighted in gold on the orbital map. At radius R=r/L, these have local speed `β=R/√(1+R²)`, specific energy `E/(mc²)=1+R²`, specific angular momentum `h/(cL)=R²`, and angular frequency c/L. Their proper and global clocks advance equally. Finite-energy massive ships remain inside the conformal boundary.
+Two of the 48 ships follow exact circular geodesics at r=10L and r=20L, highlighted in gold on the orbital map. At radius R=r/L, these have local speed `β=R/√(1+R²)`, specific energy `E/(mc²)=1+R²`, specific angular momentum `h/(cL)=R²`, and angular frequency c/L. Their proper and global clocks advance equally. Finite-energy massive ships remain inside the conformal boundary.
 
 For a unit rest-frame viewing direction d, every pixel constructs the exact past null ray `Y(λ)=X+λK`, where `K=−U+d_i E_i`. The boundary endpoint is `normalize(K.xyz)`. This includes observer aberration and AdS optical curvature without numerical ray marching. The 6,000 stars are fixed points sampled uniformly on S2, the spatial conformal boundary. The boundary spacetime is R×S2; an S3 hemisphere is the bulk optical spatial geometry.
 

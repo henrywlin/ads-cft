@@ -4,7 +4,7 @@ import {createLaser,bounceCount,advanceLasers} from '../dist/lasers.js';
 import {FlightMission,MissionProgram,reflectedAim} from '../dist/missions.js';
 
 function reflectedImpact(owner='player'){
- const player=initialPlayer(),target=makeFleet(72)[0];target.id='TRICK TARGET';
+ const player=initialPlayer(),target=makeFleet()[0];target.id='TRICK TARGET';
  const image=retarded(target,player),K=add(player.X,image.X,1,-1),frequency=-dot(K,player.U);
  const direction=add(scale(K,1/frequency),player.U,1,-1);
  const source=owner==='traffic'?{id:'NPC SOURCE'}:null;
@@ -63,8 +63,8 @@ for(const coast of [0,3,7,14]){
  const player=initialPlayer();advance(player,.6);rotate(player,.65,-.3,.2);
  for(let i=0;i<60;i++)advance(player,.004,1.5);
  advance(player,coast);rotate(player,-.2,.15,-.1);
- for(const index of [0,7,24,70,71]){
-  const target=makeFleet(72)[index],aim=reflectedAim(player,target);
+ for(const index of [0,7,24,46,47]){
+  const target=makeFleet()[index],aim=reflectedAim(player,target);
   assert.ok(aim,'A live moving target provides reflected guidance');
   close(dot(aim.direction,aim.direction),1);close(dot(aim.direction,player.U),0);close(dot(aim.direction,player.X),0);
   assert.ok(aim.arrival>player.t&&aim.arrival<player.t+Math.PI);
@@ -75,7 +75,7 @@ for(const coast of [0,3,7,14]){
  }
 }
 assert.equal(reflectedAim(initialPlayer(),null),null);
-const dead=makeFleet(72)[0];dead.deathTime=1;assert.equal(reflectedAim(initialPlayer(),dead),null);
+const dead=makeFleet()[0];dead.deathTime=1;assert.equal(reflectedAim(initialPlayer(),dead),null);
 const noImage={A:[0,0,1,0,0],B:[0,0,0,1,0]};assert.equal(reflectedAim(initialPlayer(),noImage),null);
 console.log('PASS: reflected guidance remains normalized and hits moving targets after burns, rotations, and successive global-time circuits.');
 

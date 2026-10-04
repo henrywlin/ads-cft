@@ -15,7 +15,7 @@ for(const [re,ro] of [[1,0],[1,4],[.001,0],[.001,.002]])for(const v of [-.8,0,.4
 }
 // Independently compare the measured frequency with the spacing of emission
 // proper phases of successive received wavefronts, direct and reflected.
-const fleet=makeFleet(72),player=initialPlayer(),camera=new ChaseCamera();
+const fleet=makeFleet(),player=initialPlayer(),camera=new ChaseCamera();
 for(const time of [0,.4,2,7]){
  const p=structuredClone(player);advance(p,time);const burnt=structuredClone(p);for(let i=0;i<150;i++)advance(burnt,.002,1.5);const observers=[p,camera.observer(p),burnt,camera.observer(burnt)];
  for(const o of observers)for(const ship of fleet)for(const reflected of [false,true]){

@@ -14,7 +14,7 @@ const incoming=createLaser({...geodesicAt(shooter,0),F:shooter.C[2],t:0},[shoote
 let fatal=null;while(p.t<.6&&!fatal)advance(p,.004,0,false,(segment,t)=>{fatal=advanceLasers([incoming],t,segment).find(h=>h.ship.isPlayer);return fatal?{stopAt:fatal.time}:null});
 assert.ok(fatal,'Traffic fire must kill the player');assert.equal(p.t,fatal.time);assert.equal(incoming.impact.ship,'YOUR ROCKET');assert.equal(shooter.deathTime,undefined);
 // Scheduling must give identical emission times across different frame partitions.
-function simulate(step){const fleet=makeFleet(72),traffic=new TrafficFire(fleet),rocket=initialPlayer(),beams=[],times=[];for(let end=step;end<.9000001;end+=step){const seg={...rocket};advance(rocket,step);advanceTraffic(traffic,beams,rocket.t,seg,b=>{times.push([b.sourceId,b.t]);assert.ok(Math.abs(dot(b.P,b.P))<1e-8)})}return {traffic,beams,times,fleet}}
+function simulate(step){const fleet=makeFleet(),traffic=new TrafficFire(fleet),rocket=initialPlayer(),beams=[],times=[];for(let end=step;end<.9000001;end+=step){const seg={...rocket};advance(rocket,step);advanceTraffic(traffic,beams,rocket.t,seg,b=>{times.push([b.sourceId,b.t]);assert.ok(Math.abs(dot(b.P,b.P))<1e-8)})}return {traffic,beams,times,fleet}}
 const a=simulate(.003),b=simulate(.009);assert.deepEqual(a.times,b.times);assert.ok(a.times.length>=10);assert.equal(new Set(a.times.map(v=>v[0])).size,10);
 const dead=a.traffic.shooters[0];dead.ship.deathTime=0;assert.ok(a.traffic.next(100)?.ship!==dead.ship);
 a.traffic.reset();assert.equal(a.traffic.shots,0);assert.equal(a.traffic.shooters.length,10);
