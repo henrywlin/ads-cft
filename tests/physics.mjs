@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {dot,add,scale,eventAt,movingFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds} from '../dist/physics.js';
+import {dot,add,scale,eventAt,movingFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,boost} from '../dist/physics.js';
 const close=(a,b,t=1e-9)=>assert.ok(Math.abs(a-b)<t,`${a} differs from ${b}`);
 const constraints=p=>{
  close(dot(p.X,p.X),-1);close(dot(p.U,p.U),-1);close(dot(p.X,p.U),0);
@@ -29,3 +29,10 @@ for(const r of [0,.5,2,50]){
  if(r===0)close(Math.atan2(-(X[0]*K[1]-X[1]*K[0]),X[0]*K[0]+X[1]*K[1]),Math.PI/2);
 }
 console.log('PASS: free geodesics, angular momentum, accelerated frames, second-order convergence, braking strength, retarded rays, boundary frequency, and clocks.');
+
+// At the center the forward/aft Doppler factors reduce to exp(±rapidity).
+for(const rapidity of [-1.2,.7,2]){
+ const X=eventAt([0,0,0]),m=movingFrame(X,[0,0,0]),q={X,U:m.U,R:m.E[0],V:m.E[1],F:m.E[2]};boost(q,q.F,rapidity);
+ for(const sign of [-1,1]){const K=add(q.F,q.U,sign,-1),g=1/(X[1]*K[0]-X[0]*K[1]);close(g,Math.exp(sign*rapidity))}
+}
+console.log('PASS: approaching/receding boundary light has the exact relativistic Doppler factor.');

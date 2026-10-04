@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {dot,add,scale,eventAt,movingFrame,initialPlayer,advance,makeFleet,retarded,TAU,chaseObserver,initialHistory,retardedRocket,snapshot,geodesicAt,norm3} from '../dist/physics.js';
+import {dot,add,scale,eventAt,movingFrame,initialPlayer,advance,makeFleet,retarded,TAU,chaseObserver,initialHistory,retardedRocket,snapshot,geodesicAt,norm3,rotate} from '../dist/physics.js';
 import {createLaser,laserEvent,bounceCount,advanceLasers,retardedLaser} from '../dist/lasers.js';
 const close=(a,b,t=1e-8)=>assert.ok(Math.abs(a-b)<t,`${a} differs from ${b}`);
 const p=initialPlayer(),beam=createLaser(p,[]),norm=a=>a.reduce((s,v)=>s+v*v,0);
@@ -30,3 +30,27 @@ const cam=chaseObserver(p);close(dot(cam.X,cam.X),-1);close(dot(cam.U,cam.U),-1)
 const history=initialHistory(p),source=retardedRocket(history,cam);close(dot(add(cam.X,source.X,1,-1),add(cam.X,source.X,1,-1)),0);assert.ok(source.t<p.t);
 for(let i=0;i<200;i++){advance(p,.004,1.5);history.push(snapshot(p))}const cam2=chaseObserver(p),source2=retardedRocket(history,cam2);close(dot(add(cam2.X,source2.X,1,-1),add(cam2.X,source2.X,1,-1)),0);assert.ok(source2.t<p.t);
 console.log('PASS: reflective null rays, AdS refocusing, immediate hull absorption, delayed moving-hull hits, circular boundary orbits, pulse light cones, and chase-camera history.');
+// Returning light must hit the piloted hull after clearing its own launch tube.
+for(const thrust of [0,1.5]){
+ const rocket=initialPlayer(),pulse=createLaser(rocket,[]);let hit=null;
+ for(let i=0;i<1800&&!hit;i++)advance(rocket,.004,thrust,false,(segment,t)=>{hit=advanceLasers([pulse],t,segment)[0]||null});
+ assert.ok(hit?.ship.isPlayer,'Returning pulse must hit the moving player hull');assert.ok(pulse.playerArmed);assert.ok(hit.time>pulse.firstBounce);assert.equal(bounceCount(pulse,hit.time),1);assert.equal(advanceLasers([pulse],rocket.t+TAU,rocket).length,0);
+}
+// A destroyed traffic target absorbs the pulse before it can return to us.
+{
+ const rocket=initialPlayer(),rho=.35,target={id:'BLOCKER',A:add(rocket.X,rocket.F,Math.cosh(rho),Math.sinh(rho)),B:rocket.U.slice(),C:[rocket.R,rocket.V,add(rocket.F,rocket.X,Math.cosh(rho),Math.sinh(rho))],kind:0,size:1.5};
+ const pulse=createLaser(rocket,[target]);let all=[];
+ for(let i=0;i<900;i++)advance(rocket,.004,0,false,(segment,t)=>all.push(...advanceLasers([pulse],t,segment)));
+ assert.equal(all.length,1);assert.equal(all[0].ship.id,'BLOCKER');assert.equal(pulse.impact.ship,'BLOCKER');
+}
+console.log('PASS: player survives launch, returning pulses hit coasting/accelerating rockets, and earlier traffic absorption prevents self hits.');
+
+// Steering and burning out of the return path must let the player evade it.
+{
+ const rocket=initialPlayer(),pulse=createLaser(rocket,[]);let hits=[];
+ const step=thrust=>advance(rocket,.004,thrust,false,(seg,t)=>hits.push(...advanceLasers([pulse],t,seg)));
+ for(let i=0;i<30;i++)step(0);rotate(rocket,Math.PI/2,0,0);
+ for(let i=0;i<1800&&rocket.t<3.5;i++)step(i<200?3:0);
+ assert.ok(rocket.t>Math.PI);assert.equal(hits.length,0);assert.equal(pulse.impact,null);
+}
+console.log('PASS: lateral thrust evades the returning pulse.');
