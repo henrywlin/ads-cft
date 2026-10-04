@@ -10,6 +10,7 @@ import {compactRadius,mapCoordinates,mapVelocity} from './map.js?v=25';
 import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=26';
 import {centralShip,centralHull,centralHullShader,brakingAim} from './docking.js?v=26';
 import {awardUpgrade,playerHull,interceptorHull,interceptorShader,cannonHull,cannonShader,laserMuzzle,engineNozzles} from './ship-upgrades.js?v=27';
+import {velocityCue} from './velocity-cue.js?v=28';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
 // Static launch/briefing frames must survive compositor clears in Safari.
 // Let the browser choose the GPU instead of forcing a graphics switch on launch.
@@ -23,6 +24,9 @@ let launched=false,dirty=true,pendingFence=null,musicWanted=true,effectTime=0,re
 const EXPLOSION_SECONDS=1.6,touchHolds=new Map();
 let chase=true,beams=[],lastShot=-Infinity,kills=0,shots=0,lastImpact=null;
 let selectedImageShip=null,imageFrame=null;
+let velocityArrowEnabled=true;
+function toggleVelocityArrow(){velocityArrowEnabled=!velocityArrowEnabled;dirty=true;$('velocityToggle').classList.toggle('on',velocityArrowEnabled);$('velocityToggle').setAttribute('aria-checked',String(velocityArrowEnabled))}
+$('velocityToggle').onclick=toggleVelocityArrow;
 const flightProgram=new MissionProgram();let missionTargetId=null,pendingMission=null;const announcedMissions=new Set();
 const trickMission=()=>flightProgram.missions[0];
 const dockingActive=()=>flightProgram.accepted.has('center-rest')&&flightProgram.missions[1].status==='active'&&!gameOver;
@@ -187,6 +191,7 @@ document.addEventListener('keydown',e=>{
  const throttleKey=e.code==='KeyU'||e.code==='KeyD',formFocused=['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName);
  if(document.querySelector('dialog[open]')||(formFocused&&!(throttleKey&&e.target.id==='thrust')))return;
  if(!graphicsReady||contextLost)return;
+ if(e.code==='KeyV'){e.preventDefault();if(!e.repeat)toggleVelocityArrow();return}
  if(throttleKey){e.preventDefault();setAcceleration(accel+(e.code==='KeyU'?1:-1)*Number($('thrust').step));return}
  if(gameKeys.includes(e.code)){e.preventDefault();keys.add(e.code);if(e.code==='KeyF'&&!e.repeat)fire()}
  if(!e.repeat&&e.code==='KeyP')setPause(!paused);
@@ -504,6 +509,7 @@ function draw(active=false){
  drawMissionAim();
  drawDockingAim();
  drawSelectedImage(observer);
+ drawVelocityArrow();
  if(gameOver&&deathAnimation<EXPLOSION_SECONDS)drawExplosion(width/2,height*.68,Math.min(.999,deathAnimation/EXPLOSION_SECONDS),{boundRadius:.065,size:.8}, {distance:.17});
  if(!gl||!program||contextLost)return;
  gl.useProgram(program);gl.bindVertexArray(vertexArray);
@@ -525,6 +531,16 @@ function draw(active=false){
  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,9,fleetCapacity,gl.RGBA,gl.FLOAT,fleetData);gl.drawArrays(gl.TRIANGLES,0,3);
  imageFrame={observer:snapshot(observer),ships:visible.map(s=>({...s})),width,height,pixelWidth:canvas.width,pixelHeight:canvas.height,labels:reflectionLabels};
  pendingFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);if(!pendingFence){recoverGraphics();return}pendingGeneration=surfaceGeneration;gl.flush();gpuStarted=performance.now();gpuLastPoll=gpuStarted;gpuSampleValid=active;dirty=false;renderedFrames++;
+}
+function drawVelocityArrow(){
+ if(!velocityArrowEnabled||!launched||!$('introScreen').hidden||gameOver)return;
+ const cue=velocityCue(player,width,height);if(!cue)return;
+ const {x,y,angle,aft}=cue;
+ hctx.save();hctx.translate(x,y);hctx.rotate(angle);hctx.strokeStyle='#baffff';hctx.lineWidth=2;
+ hctx.shadowColor='#020711';hctx.shadowBlur=3;
+ hctx.beginPath();hctx.moveTo(-9,0);hctx.lineTo(9,0);hctx.moveTo(3,-5);hctx.lineTo(9,0);hctx.lineTo(3,5);hctx.stroke();hctx.restore();
+ hctx.save();hctx.fillStyle='#baffff';hctx.font='6px "Arcade",monospace';hctx.textAlign='center';hctx.shadowColor='#020711';hctx.shadowBlur=3;
+ hctx.fillText(aft?'VEL · AFT':'VEL',x,y+21);hctx.restore();
 }
 function drawSelectedImage(observer){
  if(!selectedImageShip)return;
@@ -726,7 +742,7 @@ function tick(now){
  if(!document.hidden&&(active||dirty))draw(active);if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
 }
 // State read-back is useful for scientific inspection and automated validation.
-window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],upgrades:{frame:!!player.upgrades?.frame,cannon:!!player.upgrades?.cannon},radioVisible:!$('diracRadio').hidden,music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},selectedImageShip:selectedImageShip?.id??null,camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,properAcceleration:accel,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:graphicsReady&&!contextLost,status:graphicsState,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,fleetRoster:fleet.map(s=>({ship:s.id,honoree:s.honoree})),aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
+window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],upgrades:{frame:!!player.upgrades?.frame,cannon:!!player.upgrades?.cannon},radioVisible:!$('diracRadio').hidden,music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},selectedImageShip:selectedImageShip?.id??null,velocityArrow:velocityArrowEnabled,camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,properAcceleration:accel,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:graphicsReady&&!contextLost,status:graphicsState,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,fleetRoster:fleet.map(s=>({ship:s.id,honoree:s.honoree})),aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
 if(document.modelContext?.registerTool){
  const lifecycle=new AbortController();
  const specs=[
