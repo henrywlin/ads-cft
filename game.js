@@ -3,6 +3,8 @@ import {ResolutionController} from './resolution.js?v=6';
 import {ArcadeScore} from './music.js?v=10';
 import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=11';
 import {TrafficFire,advanceTraffic} from './traffic.js?v=11';
+import {burnCommand} from './flight-controls.js?v=13';
+import {ChaseCamera,rocketPoint} from './chase.js?v=13';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
 const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,depth:false,stencil:false,powerPreference:'high-performance'});
 const fleet=makeFleet(72),L_SECONDS=30,keys=new Set(),trafficFire=new TrafficFire(fleet);
@@ -18,6 +20,8 @@ const resolution=new ResolutionController({software:!!softwareRenderer,coarse:ma
 let gpuStarted=0,gpuLastPoll=0,gpuSampleValid=false;
 const pilotColors=['#55dce8','#ff984f','#9f87ff','#f06caa','#8ad86a'];
 let engineLevel=0,engineMode='forward',exhaust=[0,0,-1];
+const chaseCamera=new ChaseCamera();let thrustForce=[0,0,0];
+const viewObserver=()=>chase?chaseCamera.observer(player):player;
 const pilotNames=['Juan Maldacena','Steven Gubser','Igor Klebanov','Alexander Polyakov','Edward Witten'];let pilot=0;
 const hctx=hud.getContext('2d'),mctx=map.getContext('2d');
 let controlsPreference=null;
@@ -25,11 +29,11 @@ function updateControls(){const enabled=controlsPreference??(innerWidth<=900||ma
 $('controlsButton').onclick=()=>{controlsPreference=!$('app').classList.contains('controls-visible');updateControls()};
 window.addEventListener('resize',updateControls);updateControls();
 function notify(s){$('notice').textContent=s;$('notice').classList.add('show');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('notice').classList.remove('show'),3500)}
-function clearControls(){drag=null;gpuSampleValid=false;resolution.resetSamples();engineLevel=0;score.setThrust(0);dirty=true;keys.clear();touchHolds.clear();document.querySelectorAll('[data-key]').forEach(b=>b.classList.remove('pressed'))}
+function clearControls(){thrustForce=[0,0,0];chaseCamera.force=[0,0,0];drag=null;gpuSampleValid=false;resolution.resetSamples();engineLevel=0;score.setThrust(0);dirty=true;keys.clear();touchHolds.clear();document.querySelectorAll('[data-key]').forEach(b=>b.classList.remove('pressed'))}
 function held(code){return keys.has(code)||[...touchHolds.values()].some(b=>b.dataset.key===code)}
 function setPause(value){paused=value;clearControls();$('pauseOverlay').hidden=!value;$('pauseButton').innerHTML=value?'▷ <span>Resume</span>':'Ⅱ <span>Pause</span>';$('touchPause').textContent=value?'RESUME':'PAUSE';$('touchPause').setAttribute('aria-pressed',String(value));last=performance.now()}
-function reset(){gameOver=false;deathAnimation=0;$('gameOverScreen').hidden=true;setPause(false);player=initialPlayer();trafficFire.reset();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
-function fire(){if(contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]')||player.tau-lastShot<.012)return false;lastShot=player.tau;const beam=createLaser(player,fleet);beam.flashTime=effectTime;beams.push(beam);shots++;score.laser();drawLaserPulses(chase?chaseObserver(player):player);dirty=true;return true}
+function reset(){gameOver=false;deathAnimation=0;$('gameOverScreen').hidden=true;setPause(false);player=initialPlayer();chaseCamera.reset();thrustForce=[0,0,0];trafficFire.reset();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
+function fire(){if(contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]')||player.tau-lastShot<.012)return false;lastShot=player.tau;const beam=createLaser(player,fleet);beam.flashTime=effectTime;beams.push(beam);shots++;score.laser();dirty=true;return true}
 $('fireButton').onclick=fire;
 $('retryButton').onclick=()=>{reset();canvas.focus({preventScroll:true})};
 function endFlight(){
@@ -268,7 +272,11 @@ window.addEventListener('resize',resize);
 window.visualViewport?.addEventListener('resize',resize);
 function row(i,col,values){fleetData.set(values,(i*9+col)*4)}
 function draw(active=false){
- const observer=chase?chaseObserver(player):player;
+ if(gl&&program&&!contextLost&&pendingFence){const poll=performance.now();gpuSampleValid=gpuSampleValid&&active&&poll-gpuLastPoll<250;gpuLastPoll=poll;
+  const status=gl.clientWaitSync(pendingFence,0,0);if(status===gl.TIMEOUT_EXPIRED)return;gl.deleteSync(pendingFence);pendingFence=null;
+  if(resolution.observe(poll-gpuStarted,{active,continuous:gpuSampleValid}))resize();
+ }
+ const observer=viewObserver();
  hctx.clearRect(0,0,width,height);hctx.font='7px "Arcade",monospace';let labeled=0;
  const views=new Map(),traffic=fleet.filter(s=>{
   if(s.visualRemoved)return false;
@@ -296,14 +304,10 @@ function draw(active=false){
  // A current-frame proxy makes our own hull and immediate engine cues agree.
  // The observer, surrounding traffic and laser rays still use the AdS geometry.
  const ownState=chase&&!gameOver?player:null;
- if(ownState)drawEnginePlume(observer,ownState);
+ if(ownState){drawEnginePlume(observer,ownState);drawThrustDirection(observer,ownState)}
  drawLaserPulses(observer);
  if(gameOver&&deathAnimation<EXPLOSION_SECONDS)drawExplosion(width/2,height*.68,Math.min(.999,deathAnimation/EXPLOSION_SECONDS),{boundRadius:.065,size:.8}, {distance:.17});
  if(!gl||!program||contextLost)return;
- if(pendingFence){const poll=performance.now();gpuSampleValid=gpuSampleValid&&active&&poll-gpuLastPoll<250;gpuLastPoll=poll;
-  const status=gl.clientWaitSync(pendingFence,0,0);if(status===gl.TIMEOUT_EXPIRED)return;gl.deleteSync(pendingFence);pendingFence=null;
-  if(resolution.observe(poll-gpuStarted,{active,continuous:gpuSampleValid}))resize();
- }
  gl.useProgram(program);
  for(const name of ['X','U','R','V','F']){gl.uniform2fv(locations[name+'t'],observer[name].slice(0,2));gl.uniform3fv(locations[name+'s'],observer[name].slice(2))}
  gl.uniform1f(locations.observerTime,observer.t);
@@ -322,13 +326,21 @@ function draw(active=false){
  pendingFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();gpuStarted=performance.now();gpuLastPoll=gpuStarted;gpuSampleValid=active;dirty=false;renderedFrames++;
 }
 // Engine feedback and the player hull share the same current comoving frame.
+function projectRocketPoint(observer,ship,local){
+ const view=rocketPoint(ship,observer,local);if(!view||view.dir[2]<=.005)return null;
+ return [width/2+view.dir[0]/view.dir[2]/1.4*height,height/2-view.dir[1]/view.dir[2]/1.4*height];
+}
+function drawThrustDirection(observer,ship){
+ const magnitude=Math.hypot(...thrustForce);if(magnitude<1e-8)return;
+ const direction=thrustForce.map(v=>v/magnitude),start=projectRocketPoint(observer,ship,direction.map(v=>v*.020)),end=projectRocketPoint(observer,ship,direction.map(v=>v*.084));if(!start||!end)return;
+ const dx=end[0]-start[0],dy=end[1]-start[1],length=Math.hypot(dx,dy);if(length<3||start[0]<18||start[0]>width-18||start[1]<18||start[1]>height-18)return;const nx=dx/length,ny=dy/length;
+ // Keep the cue readable even when an aft-pointing arrow is foreshortened.
+ let span=Math.min(length,68);if(nx>0)span=Math.min(span,(width-18-start[0])/nx);if(nx<0)span=Math.min(span,(18-start[0])/nx);if(ny>0)span=Math.min(span,(height-18-start[1])/ny);if(ny<0)span=Math.min(span,(18-start[1])/ny);end[0]=start[0]+nx*span;end[1]=start[1]+ny*span;
+ hctx.save();hctx.strokeStyle='#78ffdc';hctx.fillStyle='#b2ffec';hctx.lineWidth=2;hctx.shadowBlur=7;hctx.shadowColor='#39edbd';hctx.beginPath();hctx.moveTo(...start);hctx.lineTo(...end);hctx.moveTo(end[0]-nx*7-ny*4,end[1]-ny*7+nx*4);hctx.lineTo(...end);hctx.lineTo(end[0]-nx*7+ny*4,end[1]-ny*7-nx*4);hctx.stroke();hctx.font='7px "Arcade",monospace';hctx.fillText('THRUST',Math.min(width-60,Math.max(8,end[0]+8)),Math.max(14,end[1]-5));hctx.restore();
+}
 function drawEnginePlume(observer,ship){
  if(engineLevel<.015)return;
- const project=local=>{
-  let offset=[0,0,0,0,0];[ship.R,ship.V,ship.F].forEach((e,i)=>offset=add(offset,e,1,local[i]));
-  const rho=Math.sqrt(Math.max(0,dot(offset,offset))),X=rho?add(ship.X,offset,Math.cosh(rho),Math.sinh(rho)/rho):ship.X,z=dot(X,observer.F);
-  return z>.005?[width/2+dot(X,observer.R)/z/1.4*height,height/2-dot(X,observer.V)/z/1.4*height]:null;
- };
+ const project=local=>projectRocketPoint(observer,ship,local);
  const flicker=.86+.1*Math.sin(effectTime*81)+.06*Math.sin(effectTime*137),length=(.012+.045*engineLevel)*flicker;
  const nozzles=engineMode==='forward'?[[0,0,-.039]]:engineMode==='reverse'?[[-.017,0,.022],[.017,0,.022]]:[exhaust.map(v=>v*.021)];
  hctx.save();hctx.globalCompositeOperation='lighter';hctx.lineCap='round';
@@ -392,15 +404,14 @@ function drawLaserPulses(observer){
   hctx.fillStyle='#fff9ef';hctx.shadowBlur=25;hctx.beginPath();hctx.arc(x,y,4.5,0,TAU);hctx.fill();hctx.restore();
  }
  const flash=latestPlayerBeam();if(flash&&effectTime-flash.flashTime<.24){
-  const nose=add(player.X,player.F,Math.cosh(.04),Math.sinh(.04)),z=dot(nose,observer.F);
-  const mx=z>.001?width/2+dot(nose,observer.R)/z/1.4*height:width/2,my=z>.001?height/2-dot(nose,observer.V)/z/1.4*height:height/2;
+  const [mx,my]=projectRocketPoint(observer,player,[0,0,.04])??[width/2,height/2];
   const strength=1-(effectTime-flash.flashTime)/.24;hctx.save();hctx.translate(mx-width/2,my-height/2);hctx.globalAlpha=strength;hctx.globalCompositeOperation='lighter';hctx.strokeStyle='#ff6179';hctx.lineWidth=6;hctx.shadowBlur=25;hctx.shadowColor='#ff2049';
   hctx.beginPath();hctx.moveTo(width/2-26,height/2);hctx.lineTo(width/2+26,height/2);hctx.moveTo(width/2,height/2-26);hctx.lineTo(width/2,height/2+26);hctx.stroke();hctx.strokeStyle='#fff3e9';hctx.lineWidth=2;hctx.stroke();hctx.restore();
  }
 }
 function formatClock(s){const m=Math.floor(s/60),sec=s%60;return `${String(m).padStart(2,'0')}:${sec.toFixed(2).padStart(5,'0')}`}
 function updateUi(){
- const observer=chase?chaseObserver(player):player,K=add(observer.U,observer.F,-1,1),lightShift=1/Math.max(.00001,observer.X[1]*K[0]-observer.X[0]*K[1]);
+ const observer=viewObserver(),K=add(observer.U,observer.F,-1,1),lightShift=1/Math.max(.00001,observer.X[1]*K[0]-observer.X[0]*K[1]);
  const shiftType=lightShift>1.025?'blue':lightShift<.975?'red':'neutral';$('lightShift').dataset.shift=shiftType;$('lightShift').textContent=`${shiftType==='blue'?'BLUESHIFT':shiftType==='red'?'REDSHIFT':'SPECTRUM'} ×${lightShift.toFixed(2)}`;
  const t=telemetry(player);$('speed').textContent=t.beta.toFixed(3);$('speedMeter').style.width=(t.beta*100)+'%';$('radius').innerHTML=t.r.toFixed(3)+' <small>L</small>';$('gamma').innerHTML=t.gamma.toFixed(3)+' <small>γ</small>';$('rho').textContent=t.chi.toFixed(3);$('clockRate').textContent=t.clock.toFixed(3);$('properClock').textContent=formatClock(player.tau*L_SECONDS);$('globalClock').textContent=formatClock(player.t*L_SECONDS);$('fps').textContent=String(Math.round(fps));
  drawMap();if($('mapDialog').open)drawExpandedMap();
@@ -434,24 +445,23 @@ c.clearRect(0,0,560,360);c.lineWidth=1;
 function tick(now){
  const rawElapsed=Math.max(0,(now-last)/1000),elapsed=Math.min(.06,rawElapsed);last=now;fps=fps*.96+.04/Math.max(.001,rawElapsed);
  const active=!gameOver&&!contextLost&&launched&&$('introScreen').hidden&&!paused&&!document.querySelector('dialog[open]')&&!document.hidden;
- const signedThrust=(held('KeyW')?1:0)-(held('KeyS')?1:0),braking=held('Space');
- const demand=active&&(signedThrust||braking)?accel/3:0;
+ if(active){const turn=.65*elapsed;rotate(player,((held('ArrowRight')?1:0)-(held('ArrowLeft')?1:0))*turn,((held('ArrowUp')?1:0)-(held('ArrowDown')?1:0))*turn,((held('KeyQ')?1:0)-(held('KeyE')?1:0))*turn)}
+ const command=burnCommand(player,active&&held('KeyW'),active&&held('KeyS'),active&&held('Space'),accel),demand=command.level;
+ thrustForce=command.force;chaseCamera.force=command.force.slice();
  engineLevel+=(demand-engineLevel)*(1-Math.exp(-elapsed/(demand?.055:.09)));
  if(engineLevel<.001)engineLevel=0;
- if(demand){
-  engineMode=braking?'brake':signedThrust>0?'forward':'reverse';exhaust=[0,0,-Math.sign(signedThrust)];
-  if(braking){const {T}=staticFrame(player.X),direction=[player.R,player.V,player.F].map(e=>-dot(T,e)),m=Math.hypot(...direction);exhaust=m>1e-8?direction.map(v=>v/m):[0,0,-1]}
- }
+ if(demand){engineMode=command.mode;exhaust=command.exhaust}
  score.setThrust(demand,engineMode);
  if(active){
   effectTime+=elapsed;
-  const turn=.65*elapsed;rotate(player,((held('ArrowRight')?1:0)-(held('ArrowLeft')?1:0))*turn,((held('ArrowUp')?1:0)-(held('ArrowDown')?1:0))*turn,((held('KeyQ')?1:0)-(held('KeyE')?1:0))*turn);
-  const h=elapsed*warp/L_SECONDS,n=Math.max(1,Math.ceil(h/.004)),thrust=((held('KeyW')?1:0)-(held('KeyS')?1:0))*accel;
+  const h=elapsed*warp/L_SECONDS,n=Math.max(1,Math.ceil(h/.004)),thrust=command.thrust;
   for(let i=0;i<n;i++){
-   advance(player,h/n,thrust,held('Space')?accel:false,(segment,endTime)=>{
+   const beforeTau=player.tau;
+   advance(player,h/n,thrust,command.brake,(segment,endTime)=>{
     const impacts=advanceTraffic(trafficFire,beams,endTime,segment);
     for(const hit of impacts){if(hit.ship.isPlayer){endFlight();return {stopAt:hit.time}}if(hit.beam.owner!=='traffic')kills++;lastImpact=hit;dirty=true}
    });
+   chaseCamera.advance(player.tau-beforeTau,command.force);
    if(gameOver){$('gameOverStats').textContent=`${formatClock(player.tau*L_SECONDS)} PROPER TIME · ${kills} SHIPS DESTROYED`;break}
    if(!Number.isFinite(player.X[0])||Math.abs(dot(player.X,player.X)+1)>1e-3){setPause(true);notify('Numerical precision limit reached near the boundary. Reset to continue.');break}
   }
@@ -462,7 +472,7 @@ function tick(now){
  if(active||dirty)draw(active);if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
 }
 // State read-back is useful for scientific inspection and automated validation.
-window.adsFlight={getState:()=>({launched,gameOver,storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:!!program&&!contextLost,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
+window.adsFlight={getState:()=>({launched,gameOver,storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:!!program&&!contextLost,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
 if(document.modelContext?.registerTool){
  const lifecycle=new AbortController();
  const specs=[
