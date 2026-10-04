@@ -54,3 +54,11 @@ console.log('PASS: player survives launch, returning pulses hit coasting/acceler
  assert.ok(rocket.t>Math.PI);assert.equal(hits.length,0);assert.equal(pulse.impact,null);
 }
 console.log('PASS: lateral thrust evades the returning pulse.');
+
+// A fatal collision must stop the rocket exactly at the scheduled hit time.
+for(const start of [0,3,7,14]){
+ const p=initialPlayer();advance(p,start);const pulse=createLaser(p,[]);let hit=null;
+ for(let i=0;i<1800&&!hit;i++)advance(p,.004,0,false,(segment,t)=>{hit=advanceLasers([pulse],t,segment)[0]||null;if(hit)return {stopAt:hit.time}});
+ assert.ok(hit?.ship.isPlayer);close(p.t,hit.time);close(dot(p.X,p.X),-1);close(dot(p.U,p.U),-1);
+}
+console.log('PASS: fatal laser collisions freeze on the actual event in successive global-time circuits.');

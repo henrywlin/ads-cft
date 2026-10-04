@@ -36,3 +36,17 @@ for(const rapidity of [-1.2,.7,2]){
  for(const sign of [-1,1]){const K=add(q.F,q.U,sign,-1),g=1/(X[1]*K[0]-X[0]*K[1]);close(g,Math.exp(sign*rapidity))}
 }
 console.log('PASS: approaching/receding boundary light has the exact relativistic Doppler factor.');
+
+// Large coasting advances must unwrap every global-time circuit.
+for(const duration of [Math.PI,2*Math.PI,7,14,50]){
+ const single=initialPlayer(),split=initialPlayer();advance(single,duration);
+ for(let i=0;i<1000;i++)advance(split,duration/1000);
+ close(single.t,split.t,1e-8);close(single.tau,duration);single.X.forEach((v,i)=>close(v,split.X[i],1e-8));
+}
+// Collision clipping preserves the event, proper clock and frame across periods.
+for(const start of [0,3,7,14]){
+ const p=initialPlayer();advance(p,start);const reference=structuredClone(p);advance(reference,.002);
+ advance(p,.004,0,false,()=>({stopAt:reference.t}));close(p.t,reference.t);close(p.tau,reference.tau);constraints(p);p.X.forEach((v,i)=>close(v,reference.X[i]));
+}
+{const p=initialPlayer(),reference=initialPlayer();advance(reference,12);advance(p,20,0,false,()=>({stopAt:reference.t}));close(p.tau,12);close(p.t,reference.t);p.X.forEach((v,i)=>close(v,reference.X[i]))}
+console.log('PASS: multi-period global clocks and exact partial-drift collision stopping.');

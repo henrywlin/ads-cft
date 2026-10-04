@@ -64,9 +64,22 @@ export function advance(p,h,thrust=0,brake=false,onDrift=null){
   kick(h/2);
   const drift=onDrift?{...p}:null;
   const X=p.X,U=p.U;p.X=add(X,U,Math.cos(h),Math.sin(h));p.U=add(U,X,Math.cos(h),-Math.sin(h));
-  if(onDrift){let dt=Math.atan2(p.X[1],p.X[0])-before;if(dt<0)dt+=TAU;onDrift(drift,p.t+dt)}
+  let dt=Math.atan2(p.X[1],p.X[0])-before;if(dt<0)dt+=TAU;
+  if(h>=Math.PI){
+    const periods=Math.floor(h/Math.PI),remainder=h-periods*Math.PI,Y=add(X,U,Math.cos(remainder),Math.sin(remainder));
+    let part=Math.atan2(Y[1],Y[0])-before;if(part<0)part+=TAU;dt=periods*Math.PI+part;
+  }
+  if(onDrift){
+    const endTime=p.t+dt,stop=onDrift(drift,endTime)?.stopAt;
+    // Stop on the physical impact, without the remainder of the drift or burn.
+    if(typeof stop==='number'&&Number.isFinite(stop)&&stop>=drift.t&&stop<=endTime){
+      const phase=geodesicAt({A:X,B:U},stop).s;
+      const ds=stop===drift.t?0:stop===endTime?h:Math.min(h,((phase%Math.PI)+Math.PI)%Math.PI+Math.floor((stop-drift.t)/Math.PI)*Math.PI);
+      p.X=add(X,U,Math.cos(ds),Math.sin(ds));p.U=add(U,X,Math.cos(ds),-Math.sin(ds));p.t=stop;p.tau+=ds;return;
+    }
+  }
   kick(h/2);p.tau+=h;
-  let dt=Math.atan2(p.X[1],p.X[0])-before;if(dt<0)dt+=TAU;p.t+=dt;
+  p.t+=dt;
 }
 export function telemetry(p){
   const s=Math.hypot(p.X[0],p.X[1]),{T}=staticFrame(p.X),gamma=Math.max(1,-dot(p.U,T));
