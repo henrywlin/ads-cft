@@ -10,7 +10,7 @@ import {compactRadius,mapCoordinates,mapVelocity} from './map.js?v=25';
 import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=26';
 import {centralShip,centralHull,centralHullShader,brakingAim} from './docking.js?v=26';
 import {awardUpgrade,playerHull,interceptorHull,interceptorShader,cannonHull,cannonShader,laserMuzzle,engineNozzles} from './ship-upgrades.js?v=29';
-import {velocityCue} from './velocity-cue.js?v=28';
+import {velocityCue} from './velocity-cue.js?v=30';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
 // Static launch/briefing frames must survive compositor clears in Safari.
 // Let the browser choose the GPU instead of forcing a graphics switch on launch.
@@ -561,13 +561,19 @@ function draw(active=false){
 }
 function drawVelocityArrow(){
  if(!velocityArrowEnabled||!launched||!$('introScreen').hidden||gameOver)return;
- const cue=velocityCue(player,width,height);if(!cue)return;
- const {x,y,angle,aft}=cue;
- hctx.save();hctx.translate(x,y);hctx.rotate(angle);hctx.strokeStyle='#baffff';hctx.lineWidth=2;
- hctx.shadowColor='#020711';hctx.shadowBlur=3;
- hctx.beginPath();hctx.moveTo(-9,0);hctx.lineTo(9,0);hctx.moveTo(3,-5);hctx.lineTo(9,0);hctx.lineTo(3,5);hctx.stroke();hctx.restore();
- hctx.save();hctx.fillStyle='#baffff';hctx.font='6px "Arcade",monospace';hctx.textAlign='center';hctx.shadowColor='#020711';hctx.shadowBlur=3;
- hctx.fillText(aft?'VEL · AFT':'VEL',x,y+21);hctx.restore();
+ const cue=velocityCue(player,width,height,chase?viewObserver():null);if(!cue)return;
+ const {x,y,tailX,tailY,angle,aft}=cue;
+ hctx.save();hctx.lineCap='round';hctx.lineJoin='round';
+ hctx.beginPath();hctx.moveTo(tailX,tailY);hctx.lineTo(x,y);
+ hctx.moveTo(x-Math.cos(angle-.6)*12,y-Math.sin(angle-.6)*12);hctx.lineTo(x,y);hctx.lineTo(x-Math.cos(angle+.6)*12,y-Math.sin(angle+.6)*12);
+ hctx.strokeStyle='#020711';hctx.lineWidth=7;hctx.stroke();hctx.strokeStyle='#ffdf55';hctx.lineWidth=3;hctx.stroke();
+ hctx.font='7px "Arcade",monospace';hctx.textAlign='center';
+ const text=aft?'VELOCITY · AFT':'VELOCITY · V',labelWidth=hctx.measureText(text).width+14;
+ const labelX=Math.max(labelWidth/2+8,Math.min(width-labelWidth/2-8,(tailX+x)/2));
+ const labelY=Math.min(height-24,Math.max(y,tailY)+24);
+ hctx.fillStyle='#07121aee';hctx.fillRect(labelX-labelWidth/2,labelY-13,labelWidth,22);
+ hctx.strokeStyle='#a18b35';hctx.lineWidth=1;hctx.strokeRect(labelX-labelWidth/2,labelY-13,labelWidth,22);
+ hctx.fillStyle='#ffdf55';hctx.fillText(text,labelX,labelY+1);hctx.restore();
 }
 function drawSelectedImage(observer){
  if(!selectedImageShip)return;
