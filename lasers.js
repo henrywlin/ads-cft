@@ -1,5 +1,5 @@
 import {dot,add,scale,TAU,hullParts} from './physics.js?v=15';
-import {playerHull} from './ship-upgrades.js?v=27';
+import {playerHull} from './ship-upgrades.js?v=29';
 const positive=v=>((v%TAU)+TAU)%TAU;
 export function laserEvent(beam,age){
  const c=Math.cos(age),s=Math.sin(age),q=beam.Q.map((v,i)=>v*c+beam.D[i]*s),q0=Math.abs(q[0]);
