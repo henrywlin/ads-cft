@@ -74,7 +74,7 @@ dialog{font-size:10px;line-height:1.9}dialog h1{font-size:20px;line-height:1.7}d
  #app.controls-visible .instruments{grid-column:1/-1;grid-row:3;border-left:0}#app.controls-visible footer{grid-row:4}
 }
 
-/* The opening story precedes the existing arcade pilot-selection screen. */
+/* The opening story appears after pilot selection and launch. */
 body.story-open{overflow:hidden}
 #introScreen:not([hidden]){position:fixed;inset:0;z-index:60;display:grid;grid-template-rows:minmax(0,1fr) auto;background:radial-gradient(ellipse at 50% 20%,#103042 0%,#080f1c 65%,#040911 100%);color:#cbdde5}
 #introScreen::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:1;background:repeating-linear-gradient(transparent 0,transparent 3px,#00000018 3px,#00000018 4px)}
@@ -88,3 +88,15 @@ body.story-open{overflow:hidden}
 #introContinue{min-height:48px;padding:16px 24px;border:1px solid #b7ffff;background:var(--cyan);color:#08222a;font-size:10px;line-height:1.8;box-shadow:0 4px 0 #246577}
 #introContinue:hover{background:#c2ffff}#introContinue:active{transform:translateY(2px);box-shadow:0 2px 0 #246577}.intro-actions>span{font-size:7px;color:#87a9b8;line-height:1.8;letter-spacing:.06em}
 @media(max-width:620px){.intro-body{padding:24px 22px 14px}.intro-brand{font-size:10px;padding-bottom:19px;gap:7px}.intro-brand span{font-size:6px;max-width:110px;text-align:right;line-height:2}#introTitle{font-size:17px;margin:23px 0}#introTitle span{font-size:12px}.intro-story{font-size:9px;line-height:2.4}.intro-story p{margin-bottom:24px}.intro-story .intro-welcome{padding-left:13px}.intro-actions{padding-top:15px;padding-bottom:max(15px,env(safe-area-inset-bottom));gap:12px}#introContinue{font-size:9px;padding:13px 20px}}
+
+.map-expand{display:block;width:100%;padding:0;border-radius:5px}.map-expand:hover{background:#142d3833}.map-expand>span{display:block;font-size:6px;line-height:2;color:#91b4c7;text-align:center;margin:0 0 13px;letter-spacing:.04em}
+#mapDialog{width:1040px;padding:24px;overflow-y:auto}#expandedMap{display:block;width:100%;height:auto;aspect-ratio:560/360;background:#0a121d;border:1px solid #233c4d;border-radius:6px}.expanded-map-caption{display:flex;justify-content:space-between;align-items:center;gap:15px;font-size:8px!important;line-height:1.8;color:#93b3c5!important}.expanded-map-caption>span{font-size:7px;color:#7f96aa}#mapDialog .map-key{font-size:8px;margin:17px 0 0;gap:12px;flex-wrap:wrap}
+@media(max-width:620px){#mapDialog{padding:18px}.expanded-map-caption{font-size:7px!important;flex-wrap:wrap}.expanded-map-caption>span{font-size:6px}#mapDialog .map-key{font-size:7px;gap:10px}}
+
+.shift-readout{position:absolute;right:28px;top:57px;font-size:7px;line-height:1.9;letter-spacing:.05em;pointer-events:none;color:#a5b8c7;text-shadow:0 1px 5px #000}
+.shift-readout[data-shift=blue]{color:#76bcff;text-shadow:0 0 10px #459aff77}.shift-readout[data-shift=red]{color:#ff9b85;text-shadow:0 0 10px #ff6d5677}
+@media(max-width:620px){.shift-readout{right:17px;top:53px;font-size:6px}}
+
+#gameOverScreen:not([hidden]){position:absolute;inset:0;z-index:12;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;padding:24px;background:#100b18db;backdrop-filter:blur(5px);text-align:center}#gameOverScreen h1{font-size:30px;color:#ff7899;margin:0;line-height:1.5}#gameOverScreen p{font-size:9px;line-height:2;max-width:370px}#gameOverScreen small,#gameOverScreen>span:last-child{font-size:7px;line-height:2;color:#a0a9bd}#gameOverScreen .primary-button{min-height:48px}
+
+@media(max-width:620px){#mapDialog{inset:0;margin:0;max-width:none;width:100vw;height:100svh;max-height:100svh;padding:8px;border-radius:0}#mapDialog[open]{display:flex;flex-direction:column;justify-content:center}#mapDialog .dialog-heading{padding:12px}#mapDialog .dialog-heading button{min-width:44px;min-height:44px}#mapDialog .expanded-map-caption,#mapDialog .map-key{padding:0 10px}}

@@ -52,7 +52,7 @@ export function rotate(p,yaw,pitch,roll){
   function pair(a,b,v){if(!v)return;const A=p[a],B=p[b];p[a]=add(A,B,Math.cos(v),Math.sin(v));p[b]=add(B,A,Math.cos(v),-Math.sin(v))}
   pair('F','R',yaw);pair('F','V',pitch);pair('R','V',roll);
 }
-export function advance(p,h,thrust=0,brake=false){
+export function advance(p,h,thrust=0,brake=false,onDrift=null){
   if(h<=0)return;
   const before=Math.atan2(p.X[1],p.X[0]);
   function kick(amount){
@@ -62,7 +62,9 @@ export function advance(p,h,thrust=0,brake=false){
     }else if(thrust)boost(p,p.F,amount*thrust);
   }
   kick(h/2);
+  const drift=onDrift?{...p}:null;
   const X=p.X,U=p.U;p.X=add(X,U,Math.cos(h),Math.sin(h));p.U=add(U,X,Math.cos(h),-Math.sin(h));
+  if(onDrift){let dt=Math.atan2(p.X[1],p.X[0])-before;if(dt<0)dt+=TAU;onDrift(drift,p.t+dt)}
   kick(h/2);p.tau+=h;
   let dt=Math.atan2(p.X[1],p.X[0])-before;if(dt<0)dt+=TAU;p.t+=dt;
 }
