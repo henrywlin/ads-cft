@@ -1,15 +1,16 @@
-import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=21';
-import {ResolutionController} from './resolution.js?v=6';
+import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=32';
+import {ResolutionController} from './resolution.js?v=32';
 import {ArcadeScore} from './music.js?v=21';
-import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=29';
-import {TrafficFire,advanceTraffic} from './traffic.js?v=29';
+import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=32';
+import {TrafficFire,advanceTraffic} from './traffic.js?v=32';
 import {burnCommand} from './flight-controls.js?v=15';
 import {ChaseCamera,rocketPoint} from './chase.js?v=15';
-import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=29';
-import {compactRadius,mapCoordinates,mapVelocity} from './map.js?v=25';
+import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=32';
+import {compactRadius,mapCoordinates,mapVelocity,orbitPolyline} from './map.js?v=32';
+import {hullAtlas} from './hull-atlas.js?v=32';
 import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=26';
-import {centralShip,centralHull,centralHullShader,brakingAim} from './docking.js?v=26';
-import {awardUpgrade,playerHull,interceptorHull,interceptorShader,cannonHull,cannonShader,laserMuzzle,engineNozzles} from './ship-upgrades.js?v=29';
+import {centralShip,brakingAim} from './docking.js?v=26';
+import {awardUpgrade,playerHull,interceptorHull,laserMuzzle,engineNozzles} from './ship-upgrades.js?v=29';
 import {velocityCue} from './velocity-cue.js?v=30';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
 // Static launch/briefing frames must survive compositor clears in Safari.
@@ -226,7 +227,7 @@ document.querySelectorAll('[data-key]').forEach(b=>{
  b.addEventListener('click',e=>{if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused)return;if(e.detail===0){if(b.dataset.key==='KeyF')fire();else{const token=Symbol();touchHolds.set(token,b);b.classList.add('pressed');setTimeout(()=>{touchHolds.delete(token);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')},140)}}});
 });
 const fleetCapacity=fleet.length+2; // Includes Axiom and the player hull in chase view.
-let program,skyTexture,shipTexture,vertexArray,locations={},fleetData=new Float32Array(9*fleetCapacity*4);
+let program,skyTexture,shipTexture,hullTexture,vertexArray,locations={},fleetData=new Float32Array(10*fleetCapacity*4);
 function initRenderer(){
  graphicsStatus('starting','Preparing the flight view…');
  if(!gl){graphicsStatus('failed','Graphics could not start. Reload the game to retry.');return}
@@ -242,6 +243,9 @@ function initRenderer(){
  uniform vec3 Xs,Us,Rs,Vs,Fs;
  uniform lowp sampler2D sky;
  uniform highp sampler2D fleet;
+ uniform highp sampler2D hullGeometry;
+ const int hullCounts[6]=int[6](${hullAtlas.counts.join(',')});
+ const int hullOffsets[6]=int[6](${hullAtlas.offsets.join(',')});
  uniform float showGrid;
  uniform float observerTime;
  uniform int shipCount;
@@ -289,7 +293,10 @@ function initRenderer(){
   float nearest=1e20;
   for(int i=0;i<shipCount;i++){
    vec4 bounds=data(i,8);
-   if(abs(screen.x-bounds.x)>bounds.z||abs(screen.y-bounds.y)>bounds.z)continue;
+   vec4 echoBounds=data(i,9);
+   bool inDirect=abs(screen.x-bounds.x)<=bounds.z&&abs(screen.y-bounds.y)<=bounds.z;
+   bool inEcho=abs(screen.x-echoBounds.x)<=echoBounds.z&&abs(screen.y-echoBounds.y)<=echoBounds.z;
+   if(!inDirect&&!inEcho)continue;
    vec4 pos=data(i,0),vel=data(i,1);
    vec3 nc=-vel.xyz+d.x*data(i,2).xyz+d.y*data(i,3).xyz+d.z*data(i,4).xyz;
    float size=pos.w;
@@ -298,40 +305,12 @@ function initRenderer(){
    float h=0.0,etaHit=1.0,bestDelay=nearest;int part=0;bool found=false;
    bool own=data(i,2).w>.5;
    bool cannon=own&&playerCannon>.5;
-   int pieces=kind==5?${interceptorHull.length}+(cannon?${cannonHull.length}:0):own&&kind==0?2+(cannon?${cannonHull.length}:0):kind==4?${centralHull.length}:kind==3?6:kind==1?4:2;
+   int basePieces=hullCounts[kind];
+   int pieces=basePieces+(cannon?${hullAtlas.cannonParts}:0);
    for(int piece=0;piece<pieces;piece++){
-    vec3 rr,cc;bool enabled=true;
-    if(cannon&&piece>=(kind==5?${interceptorHull.length}:2)){
-     int modulePart=piece-(kind==5?${interceptorHull.length}:2);
-     ${cannonShader}
-    }else if(kind==5){
-     ${interceptorShader}
-    }else if(kind==0){
-     if(piece==0){rr=vec3(.013,.014,.047);cc=vec3(0);}else if(piece==1){rr=vec3(.043,.0035,.020);cc=vec3(0,-.005,-.008);}else enabled=false;
-    }else if(kind==1){
-     // Discovery: spherical command module, long narrow spine, rear engine block.
-     if(piece==0){rr=vec3(.024);cc=vec3(0,0,.068);}
-     else if(piece==1){rr=vec3(.005,.005,.071);cc=vec3(0,0,-.005);}
-     else if(piece==2){rr=vec3(.026,.018,.023);cc=vec3(0,0,-.078);}
-     else if(piece==3){rr=vec3(.012,.014,.023);cc=vec3(0,0,.022);}
-     else enabled=false;
-    }else if(kind==2){
-     // Heighliner: an immense elongated carrier with a dark recessed bow.
-     if(piece==0){rr=vec3(.041,.042,.106);cc=vec3(0);}
-     else if(piece==1){rr=vec3(.053,.016,.044);cc=vec3(0,-.022,-.050);}
-     else enabled=false;
-    }else if(kind==4){
-     ${centralHullShader}
-    }else{
-     // Saucer, engineering section, twin nacelles, cross-pylon and neck.
-     if(piece==0){rr=vec3(.054,.007,.043);cc=vec3(0,.015,.032);}
-     else if(piece==1){rr=vec3(.015,.015,.048);cc=vec3(0,-.018,-.030);}
-     else if(piece==2){rr=vec3(.009,.009,.055);cc=vec3(-.041,.006,-.050);}
-     else if(piece==3){rr=vec3(.009,.009,.055);cc=vec3(.041,.006,-.050);}
-     else if(piece==4){rr=vec3(.044,.004,.008);cc=vec3(0,-.002,-.045);}
-     else{rr=vec3(.007,.020,.014);cc=vec3(0,0,.007);}
-    }
-    if(!enabled)continue;
+    int shapeRow=cannon&&piece>=basePieces?${hullAtlas.cannonOffset}+piece-basePieces:hullOffsets[kind]+piece;
+    vec3 rr=texelFetch(hullGeometry,ivec2(0,shapeRow),0).xyz;
+    vec3 cc=texelFetch(hullGeometry,ivec2(1,shapeRow),0).xyz;
     for(int reflected=0;reflected<2;reflected++){
      float eta=reflected==0?1.0:-1.0;if(own&&reflected==1)continue;
      vec2 roots=hullRoots(eta*pos.xyz,eta*nc,cc*size,rr*size);
@@ -444,7 +423,7 @@ function initRenderer(){
  function compile(type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));return shader}
  try{
   program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vertex));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragment));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);vertexArray=gl.createVertexArray();gl.bindVertexArray(vertexArray);
-  for(const n of ['resolution','Xt','Ut','Rt','Vt','Ft','Xs','Us','Rs','Vs','Fs','showGrid','sky','fleet','shipCount','observerTime','playerColor','engineBurn','playerCannon','playerFiring'])locations[n]=gl.getUniformLocation(program,n);
+  for(const n of ['resolution','Xt','Ut','Rt','Vt','Ft','Xs','Us','Rs','Vs','Fs','showGrid','sky','fleet','shipCount','observerTime','playerColor','engineBurn','playerCannon','playerFiring','hullGeometry'])locations[n]=gl.getUniformLocation(program,n);
   skyTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,skyTexture);
   const sky=document.createElement('canvas');sky.width=Math.min(2048,gl.getParameter(gl.MAX_TEXTURE_SIZE));sky.height=sky.width/2;const ctx=sky.getContext('2d'),rand=seeded(914982);
   ctx.fillStyle='#000';ctx.fillRect(0,0,sky.width,sky.height);
@@ -458,7 +437,8 @@ function initRenderer(){
    }
   }
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sky);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-  shipTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,9,fleetCapacity,0,gl.RGBA,gl.FLOAT,fleetData);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.uniform1i(locations.sky,0);gl.uniform1i(locations.fleet,1);
+  shipTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,10,fleetCapacity,0,gl.RGBA,gl.FLOAT,fleetData);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.uniform1i(locations.sky,0);gl.uniform1i(locations.fleet,1);
+  hullTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,hullTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,2,hullAtlas.rows,0,gl.RGBA,gl.FLOAT,hullAtlas.data);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.uniform1i(locations.hullGeometry,2);
   if(gl.getError()!==gl.NO_ERROR)throw Error('Unable to initialize the ray-tracing textures');
  }catch(e){console.error(e);program=null;graphicsStatus('failed','Graphics could not start. Reload the game to retry.')}
 }
@@ -476,7 +456,7 @@ function resize(){
 new ResizeObserver(resize).observe(canvas.parentElement);
 window.addEventListener('resize',resize);
 window.visualViewport?.addEventListener('resize',resize);
-function row(i,col,values){fleetData.set(values,(i*9+col)*4)}
+function row(i,col,values){fleetData.set(values,(i*10+col)*4)}
 function recoverGraphics(){
  if(contextLost||graphicsState==='lost'||graphicsState==='failed')return;
  clearControls();graphicsReady=false;
@@ -541,22 +521,27 @@ function draw(active=false){
  if(!gl||!program||contextLost)return;
  gl.useProgram(program);gl.bindVertexArray(vertexArray);
  gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,skyTexture);
+ gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,hullTexture);
  for(const name of ['X','U','R','V','F']){gl.uniform2fv(locations[name+'t'],observer[name].slice(0,2));gl.uniform3fv(locations[name+'s'],observer[name].slice(2))}
  gl.uniform1f(locations.observerTime,observer.t);
  gl.uniform2f(locations.resolution,canvas.width,canvas.height);gl.uniform1f(locations.showGrid,grid?1:0);
  gl.uniform3fv(locations.playerColor,[1,3,5].map(i=>parseInt(pilotColors[pilot].slice(i,i+2),16)/255));gl.uniform1f(locations.engineBurn,engineMode==='forward'?engineLevel:0);
  gl.uniform1f(locations.playerCannon,player.upgrades?.cannon?1:0);const flash=latestPlayerBeam();gl.uniform1f(locations.playerFiring,flash?Math.max(0,1-(effectTime-flash.flashTime)/.24):0);
  const visible=ownState?[...traffic,playerHull(ownState)]:traffic;
- gl.uniform1i(locations.shipCount,visible.length);
- visible.forEach((s,i)=>{
+ // Separate the two image caps: their enclosing rectangle can cover empty sky.
+ // Cull only geometry whose exact enclosing sphere misses the entire viewport.
+ const inView=b=>Math.abs(b[0])<=canvas.width/(2*canvas.height)+b[2]&&Math.abs(b[1])<=.5+b[2];
+ const prepared=visible.map(s=>({s,bounds:shipBounds(s,observer,3/canvas.height,!s.own,true)})).filter(item=>item.bounds.some(inView));
+ gl.uniform1i(locations.shipCount,prepared.length);
+ prepared.forEach(({s,bounds},i)=>{
   row(i,0,[...s.C.map(c=>dot(observer.X,c)),s.size]);row(i,1,[...s.C.map(c=>dot(observer.U,c)),s.hue]);
   for(const [j,k] of [[2,'R'],[3,'V'],[4,'F']])row(i,j,[...s.C.map(c=>dot(observer[k],c)),j===4?s.kind:j===2&&s.own?1:0]);
   row(i,5,[dot(observer.X,s.A),dot(observer.X,s.B),dot(observer.U,s.A),dot(observer.U,s.B)]);
   row(i,6,[dot(observer.R,s.A),dot(observer.R,s.B),dot(observer.V,s.A),dot(observer.V,s.B)]);row(i,7,[dot(observer.F,s.A),dot(observer.F,s.B),0,0]);
-  const bounds=shipBounds(s,observer,3/canvas.height,!s.own);bounds[3]=Number.isFinite(s.deathTime)?s.deathTime:-1;row(i,8,bounds);
+  bounds[0][3]=Number.isFinite(s.deathTime)?s.deathTime:-1;row(i,8,bounds[0]);row(i,9,bounds[1]);
  });
- gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,9,fleetCapacity,gl.RGBA,gl.FLOAT,fleetData);gl.drawArrays(gl.TRIANGLES,0,3);
- imageFrame={observer:snapshot(observer),ships:visible.map(s=>({...s})),width,height,pixelWidth:canvas.width,pixelHeight:canvas.height,labels:reflectionLabels};
+ gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,10,fleetCapacity,gl.RGBA,gl.FLOAT,fleetData);gl.drawArrays(gl.TRIANGLES,0,3);
+ imageFrame={observer:snapshot(observer),ships:prepared.map(({s})=>({...s})),width,height,pixelWidth:canvas.width,pixelHeight:canvas.height,labels:reflectionLabels};
  pendingFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);if(!pendingFence){recoverGraphics();return}pendingGeneration=surfaceGeneration;gl.flush();gpuStarted=performance.now();gpuLastPoll=gpuStarted;gpuSampleValid=active;dirty=false;renderedFrames++;
 }
 function drawVelocityArrow(){
@@ -704,6 +689,12 @@ function drawFlightMap(){
  c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,w,h);
  c.setTransform(scale,0,0,scale,(w-560*scale)/2,(h-360*scale)/2);drawMap(c,true);
 }
+const orbitPaths=new WeakMap();
+function cachedOrbitPaths(ship){
+ const samples=orbitPolyline(ship),cached=orbitPaths.get(ship);if(cached?.samples===samples)return cached.paths;
+ const paths=[[140,[0,2]],[420,[1,2]]].map(([cx,axes])=>{const path=new Path2D();for(let j=0;j<samples.length;j+=3){const x=cx+samples[j+axes[0]]*118,y=173-samples[j+axes[1]]*118;if(j)path.lineTo(x,y);else path.moveTo(x,y)}return path});
+ orbitPaths.set(ship,{samples,paths});return paths;
+}
 function drawMap(c=mctx,translucent=false){
  c.clearRect(0,0,560,360);
  if(translucent){c.fillStyle='#06132399';c.fillRect(0,0,560,360)}
@@ -713,7 +704,7 @@ function drawMap(c=mctx,translucent=false){
   c.lineWidth=1;c.setLineDash([]);c.font=`${translucent?13:9}px "Arcade",monospace`;c.textAlign='center';c.fillStyle='#a7c9df';c.fillText(title,cx,25);
   for(const r of [1,3,10,Infinity]){const a=r===Infinity?1:compactRadius(r);c.beginPath();c.arc(cx,cy,a*radius,0,TAU);c.strokeStyle=r===Infinity?'#58778c':translucent?'#4c6d87':'#2c4156';c.stroke();c.fillStyle='#829ab0';c.fillText(r===Infinity?'∞':`${r}L`,cx+13,cy-a*radius+11)}
   c.strokeStyle='#273749';c.setLineDash([3,6]);c.beginPath();c.moveTo(cx-radius,cy);c.lineTo(cx+radius,cy);c.moveTo(cx,cy-radius);c.lineTo(cx,cy+radius);c.stroke();c.setLineDash([]);c.textAlign='left';
-  const trail=ship=>{c.beginPath();for(let j=0;j<=90;j++){const p=point(geodesicAt(ship,player.t-TAU*j/90).X);if(j)c.lineTo(...p);else c.moveTo(...p)}c.strokeStyle=ship.boundaryOrbit?'#e9bc7965':translucent?'#6d90be80':'#45659450';c.stroke()};
+  const trail=ship=>{c.strokeStyle=ship.boundaryOrbit?'#e9bc7965':translucent?'#6d90be80':'#45659450';c.stroke(cachedOrbitPaths(ship)[cx===140?0:1])};
   for(let i=0;i<fleet.length;i++){const ship=fleet[i];if(Number.isFinite(ship.deathTime))continue;if(i%7===0||ship.boundaryOrbit)trail(ship);const [x,y]=point(geodesicAt(ship,player.t).X);c.fillStyle=ship.boundaryOrbit?'#e9bc79':translucent?'#9dbff5':'#80a6e090';c.fillRect(x-2,y-2,4,4)}
   const target=missionTarget();if(target){const [x,y]=point(geodesicAt(target,player.t).X);c.strokeStyle='#ffd287';c.lineWidth=2;c.beginPath();c.arc(x,y,7,0,TAU);c.stroke();c.lineWidth=1}
   for(const beam of beams.slice(-8)){
