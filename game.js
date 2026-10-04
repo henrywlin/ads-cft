@@ -7,6 +7,7 @@ import {burnCommand} from './flight-controls.js?v=15';
 import {ChaseCamera,rocketPoint} from './chase.js?v=15';
 import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=15';
 import {compactRadius,mapCoordinates} from './map.js?v=15';
+import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=22';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
 // Static launch/briefing frames must survive compositor clears in Safari.
 // Let the browser choose the GPU instead of forcing a graphics switch on launch.
@@ -19,6 +20,7 @@ let gameOver=false,deathAnimation=0;
 let launched=false,dirty=true,pendingFence=null,musicWanted=true,effectTime=0,renderedFrames=0,renderedTraffic=fleet.length,contextLost=false;const score=new ArcadeScore();
 const EXPLOSION_SECONDS=1.6,touchHolds=new Map();
 let chase=true,beams=[],lastShot=-Infinity,kills=0,shots=0,lastImpact=null;
+let selectedImageShip=null,imageFrame=null;
 const flightProgram=new MissionProgram();let missionTargetId=null,pendingMission=null;const announcedMissions=new Set();
 const trickMission=()=>flightProgram.missions[0];
 function missionTarget(){if(!flightProgram.accepted.has('trick-shot')||trickMission().status!=='active')return null;let target=fleet.find(s=>s.id===missionTargetId&&!Number.isFinite(s.deathTime));if(!target){target=fleet.find(s=>!Number.isFinite(s.deathTime));missionTargetId=target?.id??null}return target}
@@ -42,7 +44,7 @@ function notify(s){$('notice').textContent=s;$('notice').classList.add('show');c
 function clearControls(){thrustForce=[0,0,0];chaseCamera.force=[0,0,0];drag=null;gpuSampleValid=false;resolution.resetSamples();engineLevel=0;score.setThrust(0);dirty=true;keys.clear();touchHolds.clear();document.querySelectorAll('[data-key]').forEach(b=>b.classList.remove('pressed'))}
 function held(code){return keys.has(code)||[...touchHolds.values()].some(b=>b.dataset.key===code)}
 function setPause(value){paused=value;clearControls();$('pauseOverlay').hidden=!value;$('pauseButton').innerHTML=value?'▷ <span>Resume</span>':'Ⅱ <span>Pause</span>';$('touchPause').textContent=value?'RESUME':'PAUSE';$('touchPause').setAttribute('aria-pressed',String(value));last=performance.now()}
-function reset(){gameOver=false;deathAnimation=0;$('gameOverScreen').hidden=true;if($('missionOfferDialog').open)$('missionOfferDialog').close();flightProgram.reset();announcedMissions.clear();pendingMission=null;missionTargetId=null;setPause(false);player=initialPlayer();chaseCamera.reset();thrustForce=[0,0,0];trafficFire.reset();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
+function reset(){gameOver=false;deathAnimation=0;selectedImageShip=null;imageFrame=null;$('gameOverScreen').hidden=true;if($('missionOfferDialog').open)$('missionOfferDialog').close();flightProgram.reset();announcedMissions.clear();pendingMission=null;missionTargetId=null;setPause(false);player=initialPlayer();chaseCamera.reset();thrustForce=[0,0,0];trafficFire.reset();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
 function fire(){if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]')||player.tau-lastShot<.012)return false;lastShot=player.tau;const beam=createLaser(player,fleet);beam.flashTime=effectTime;beams.push(beam);shots++;score.laser();dirty=true;return true}
 $('fireButton').onclick=fire;
 $('retryButton').onclick=()=>{reset();canvas.focus({preventScroll:true})};
@@ -103,8 +105,10 @@ function openDialog(id){clearControls();$(id).showModal()}
 function offerMission(id){
  pendingMission=id;const m=missionCatalog.find(m=>m.id===id);
  $('missionOfferTitle').textContent=m.name;$('missionOfferText').textContent=m.description;
- $('missionOfferTip').textContent=id==='trick-shot'?'Aim with the gold BANK AIM cue. Direct hits do not count.':'Use both map projections to find the center, then brake.';
- openDialog('missionOfferDialog');$('missionAccept').focus({preventScroll:true});
+ $('missionOfferTip').textContent=id==='trick-shot'
+  ?'Accept, then steer toward the gold BANK AIM marker. Center it in your sights and fire with F or FIRE. It aims a boundary bounce at the marked vessel. A direct hit will not count.'
+  :'Use both map views to find the center. Aim your nose toward it and use short forward bursts with W or THRUST. Release thrust, then hold Space or BRAKE as you approach. Make small corrections and stay slow near the center for two ship seconds.';
+ openDialog('missionOfferDialog');document.querySelector('.mission-message').scrollTop=0;$('missionAccept').focus({preventScroll:true});score.incoming();
 }
 $('missionAccept').onclick=()=>{if(pendingMission){flightProgram.accept(pendingMission,player);notify(`${missionCatalog.find(m=>m.id===pendingMission).name} accepted`)}$('missionOfferDialog').close();updateUi()};
 $('missionDecline').onclick=()=>$('missionOfferDialog').close();
@@ -137,9 +141,26 @@ document.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey)return
 document.addEventListener('focusin',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))clearControls()});
 document.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',clearControls);document.addEventListener('visibilitychange',()=>{clearControls();last=performance.now();if(!document.hidden){gpuStarted=last;dirty=true}});
 window.addEventListener('pageshow',()=>{clearControls();last=performance.now();gpuStarted=last;dirty=true});
-canvas.addEventListener('pointerdown',e=>{if(!graphicsReady||contextLost||gameOver||!launched||paused)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY};canvas.setPointerCapture(e.pointerId)});
-canvas.addEventListener('pointermove',e=>{if(!graphicsReady||!drag||drag.id!==e.pointerId||paused)return;rotate(player,(e.clientX-drag.x)*.003,-(e.clientY-drag.y)*.003,0);dirty=true;drag={...drag,x:e.clientX,y:e.clientY}});
-canvas.addEventListener('pointerup',e=>{if(drag?.id!==e.pointerId)return;if(Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4)fire();drag=null});canvas.addEventListener('pointercancel',()=>drag=null);canvas.addEventListener('lostpointercapture',()=>drag=null);
+function reflectedImageAt(clientX,clientY){
+ if(!imageFrame)return null;const rect=canvas.getBoundingClientRect();
+ const x=(clientX-rect.left)*imageFrame.width/rect.width,y=(clientY-rect.top)*imageFrame.height/rect.height;
+ const label=imageFrame.labels.find(r=>x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom);
+ if(label)return label.id;
+ // Sample the same pixel center as the GPU, even at reduced render resolution.
+ const px=Math.floor(x/imageFrame.width*imageFrame.pixelWidth)+.5,py=Math.floor(y/imageFrame.height*imageFrame.pixelHeight)+.5;
+ const hit=pickShipImage(imageFrame.observer,imageFrame.ships,px,py,imageFrame.pixelWidth,imageFrame.pixelHeight);
+ return hit?.reflected&&!hit.ship.own?hit.ship.id:null;
+}
+function selectReflectedImage(id){
+ selectedImageShip=null;
+ const ship=fleet.find(s=>s.id===id);
+ if(!ship||Number.isFinite(ship.deathTime)||ship.visualRemoved){notify('That vessel’s direct image is no longer available');return}
+ if(!faceDirectImage(player,ship))return;
+ selectedImageShip=ship;dirty=true;notify(`${ship.id} · DIRECT IMAGE`);
+}
+canvas.addEventListener('pointerdown',e=>{if(drag||e.button!==0||!graphicsReady||contextLost||gameOver||!launched||paused||!$('introScreen').hidden||document.querySelector('dialog[open]'))return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false,reflection:reflectedImageAt(e.clientX,e.clientY)};canvas.setPointerCapture(e.pointerId)});
+canvas.addEventListener('pointermove',e=>{if(!graphicsReady||!drag||drag.id!==e.pointerId||paused)return;if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4)return;rotate(player,(e.clientX-drag.x)*.003,-(e.clientY-drag.y)*.003,0);dirty=true;drag={...drag,x:e.clientX,y:e.clientY,moved:true}});
+canvas.addEventListener('pointerup',e=>{if(drag?.id!==e.pointerId)return;if(!drag.moved&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4){if(drag.reflection)selectReflectedImage(drag.reflection);else fire()}drag=null});canvas.addEventListener('pointercancel',()=>drag=null);canvas.addEventListener('lostpointercapture',()=>drag=null);
 document.querySelectorAll('[data-key]').forEach(b=>{
  b.addEventListener('pointerdown',e=>{e.preventDefault();if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]'))return;touchHolds.set(e.pointerId,b);b.classList.add('pressed');b.setPointerCapture(e.pointerId);if(b.dataset.key==='KeyF')fire()});
  for(const event of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(event,e=>{touchHolds.delete(e.pointerId);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')});
@@ -355,7 +376,7 @@ function pollFrame(active=false){
 function draw(active=false){
  if(!pollFrame(active))return;
  const observer=viewObserver();
- hctx.clearRect(0,0,width,height);hctx.font='7px "Arcade",monospace';let labeled=0;
+ hctx.clearRect(0,0,width,height);hctx.font='7px "Arcade",monospace';let labeled=0;const reflectionLabels=[];
  const views=new Map(),traffic=fleet.filter(s=>{
   if(s.visualRemoved)return false;
   const view=retarded(s,observer);views.set(s,view);
@@ -371,7 +392,7 @@ function draw(active=false){
   const x=width/2+view.dir[0]/view.dir[2]/1.4*height,y=height/2-view.dir[1]/view.dir[2]/1.4*height;
   if(s.explosionStarted!==undefined){if(!reflected)drawExplosion(x,y,(effectTime-s.explosionStarted)/EXPLOSION_SECONDS,s,view);continue}
   if(Number.isFinite(s.deathTime))continue;
-  if(x>50&&x<width-105&&y>85&&y<height-120&&labeled<10){
+  if((reflected||s!==selectedImageShip)&&x>50&&x<width-105&&y>85&&y<height-120&&labeled<10){
    labeled++;const size=Math.max(7,Math.min(24,.065*s.size/Math.max(.07,view.distance)*height));
    hctx.strokeStyle='rgba(119,172,207,.38)';hctx.lineWidth=.7;
    for(const [a,b,c,e] of [[-1,-1,1,1],[1,-1,-1,1],[-1,1,1,-1],[1,1,-1,-1]]){hctx.beginPath();hctx.moveTo(x+a*size+c*5,y+b*size);hctx.lineTo(x+a*size,y+b*size);hctx.lineTo(x+a*size,y+b*size+e*5);hctx.stroke()}
@@ -379,6 +400,7 @@ function draw(active=false){
    const labelWidth=Math.max(hctx.measureText(name).width,hctx.measureText(spectrum).width),labelX=Math.max(12,Math.min(x+size+8,width-labelWidth-12));
    hctx.fillStyle='rgba(168,199,224,.68)';hctx.fillText(name,labelX,y-3);
    hctx.fillStyle='rgba(117,151,184,.62)';hctx.fillText(spectrum,labelX,y+11);
+   if(reflected)reflectionLabels.push({id:s.id,left:labelX-4,right:labelX+labelWidth+4,top:y-14,bottom:y+16});
   }
  }
  // A current-frame proxy makes our own hull and immediate engine cues agree.
@@ -387,6 +409,7 @@ function draw(active=false){
  if(ownState)drawEnginePlume(observer,ownState);
  drawLaserPulses(observer);
  drawMissionAim();
+ drawSelectedImage(observer);
  if(gameOver&&deathAnimation<EXPLOSION_SECONDS)drawExplosion(width/2,height*.68,Math.min(.999,deathAnimation/EXPLOSION_SECONDS),{boundRadius:.065,size:.8}, {distance:.17});
  if(!gl||!program||contextLost)return;
  gl.useProgram(program);gl.bindVertexArray(vertexArray);
@@ -405,7 +428,17 @@ function draw(active=false){
   const bounds=shipBounds(s,observer,3/canvas.height,!s.own);bounds[3]=Number.isFinite(s.deathTime)?s.deathTime:-1;row(i,8,bounds);
  });
  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,9,fleetCapacity,gl.RGBA,gl.FLOAT,fleetData);gl.drawArrays(gl.TRIANGLES,0,3);
+ imageFrame={observer:snapshot(observer),ships:visible.map(s=>({...s})),width,height,pixelWidth:canvas.width,pixelHeight:canvas.height,labels:reflectionLabels};
  pendingFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);if(!pendingFence){recoverGraphics();return}pendingGeneration=surfaceGeneration;gl.flush();gpuStarted=performance.now();gpuLastPoll=gpuStarted;gpuSampleValid=active;dirty=false;renderedFrames++;
+}
+function drawSelectedImage(observer){
+ if(!selectedImageShip)return;
+ if(gameOver||selectedImageShip.visualRemoved||Number.isFinite(selectedImageShip.deathTime)){selectedImageShip=null;return}
+ const box=directImageBox(selectedImageShip,observer,width,height);if(!box)return;
+ hctx.save();hctx.strokeStyle='#7ffff1';hctx.fillStyle='#bafff8';hctx.lineWidth=2;
+ hctx.strokeRect(box.left,box.top,box.width,box.height);hctx.font='7px "Arcade",monospace';
+ const text=`${selectedImageShip.id} · DIRECT IMAGE`,x=Math.max(8,Math.min(box.left,width-hctx.measureText(text).width-8));
+ hctx.fillText(text,x,box.top>=22?box.top-8:Math.min(height-8,box.top+box.height+16));hctx.restore();
 }
 function drawMissionAim(){
  const target=missionTarget(),aim=target&&reflectedAim(player,target);if(!aim)return;
@@ -563,7 +596,7 @@ function tick(now){
  if(!document.hidden&&(active||dirty))draw(active);if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
 }
 // State read-back is useful for scientific inspection and automated validation.
-window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:graphicsReady&&!contextLost,status:graphicsState,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,fleetRoster:fleet.map(s=>({ship:s.id,honoree:s.honoree})),aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
+window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},selectedImageShip:selectedImageShip?.id??null,camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:graphicsReady&&!contextLost,status:graphicsState,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,fleetRoster:fleet.map(s=>({ship:s.id,honoree:s.honoree})),aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
 if(document.modelContext?.registerTool){
  const lifecycle=new AbortController();
  const specs=[
