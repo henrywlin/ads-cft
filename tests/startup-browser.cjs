@@ -3,6 +3,8 @@ const {chromium,webkit}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const engine=process.argv[2]||'webkit',url=process.env.ADS_URL||'http://127.0.0.1:8081/';
 (async()=>{const b=await(engine==='webkit'?webkit:chromium).launch(engine==='webkit'?{headless:true}:{headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||'/usr/bin/chromium',args:['--no-sandbox','--enable-unsafe-swiftshader','--disable-dev-shm-usage']});try{
  const reports=[];
+ const launchLayout=p=>p.evaluate(()=>['.launch-center','.launch-pilots','#launchButton','.launch-enter','.launch-bottom'].map(selector=>{const r=document.querySelector(selector).getBoundingClientRect();return {selector,y:r.y,height:r.height}}));
+ function sameLayout(before,after){for(let i=0;i<before.length;i++){assert.ok(Math.abs(before[i].y-after[i].y)<.5,`${before[i].selector} moved: ${JSON.stringify({before:before[i],after:after[i]})}`);assert.ok(Math.abs(before[i].height-after[i].height)<.5,`${before[i].selector} changed height`)}}
  async function pageFor(mode,viewport={width:1280,height:850}){
   const p=await b.newPage({viewport,deviceScaleFactor:2}),errors=[];p.on('pageerror',e=>errors.push(e.message));
   await p.addInitScript(mode=>{
@@ -29,10 +31,14 @@ const engine=process.argv[2]||'webkit',url=process.env.ADS_URL||'http://127.0.0.
   const assigned=await p.evaluate(()=>window.__startup.assignments);await p.evaluate(()=>{window.__startup.size();window.__startup.size()});assert.equal(await p.evaluate(()=>window.__startup.assignments),assigned,'An unchanged size must not erase the scene');
   assert.equal((await p.evaluate(()=>window.adsFlight.getState())).properTime,0);assert.deepEqual(errors,[]);reports.push({viewport,retainedPixels:image.lit});await p.close();
  }
- {
-  const {p,errors}=await pageFor('delay');await p.waitForFunction(()=>window.adsFlight.getState().renderer.frames>0);
-  assert.equal(await p.locator('#launchButton').isDisabled(),true);await p.keyboard.press('ArrowRight');await p.keyboard.press('Enter');let state=await p.evaluate(()=>window.adsFlight.getState());assert.equal(state.launched,false);assert.equal(state.properTime,0);assert.equal(state.renderer.ready,false);assert.equal(state.pilot,'Steven Gubser');assert.equal(await p.locator('#launchGraphicsStatus').isVisible(),true);
-  await p.evaluate(()=>window.__startup.release=true);await p.waitForFunction(()=>window.adsFlight.getState().renderer.ready);await p.keyboard.press('Enter');assert.equal((await p.evaluate(()=>window.adsFlight.getState())).storyVisible,true);assert.deepEqual(errors,[]);await p.close();
+ for(const viewport of [{width:1280,height:850},{width:390,height:844},{width:844,height:390}]){
+  const {p,errors}=await pageFor('delay',viewport);await p.waitForFunction(()=>window.adsFlight.getState().renderer.frames>0);await p.evaluate(()=>document.fonts.ready);
+  assert.equal(await p.locator('#launchButton').isDisabled(),true);await p.keyboard.press('ArrowRight');await p.keyboard.press('Enter');let state=await p.evaluate(()=>window.adsFlight.getState());assert.equal(state.launched,false);assert.equal(state.properTime,0);assert.equal(state.renderer.ready,false);assert.equal(state.pilot,'Steven Gubser');assert.equal(await p.locator('#launchGraphicsStatus').isVisible(),true);const before=await launchLayout(p);
+  await p.evaluate(()=>window.__startup.release=true);await p.waitForFunction(()=>window.adsFlight.getState().renderer.ready);sameLayout(before,await launchLayout(p));assert.equal(await p.locator('#launchGraphicsStatus').isVisible(),false);
+  // Recovery can repeat readiness transitions without moving launch controls.
+  await p.evaluate(()=>{window.__startup.contextRecovery=document.querySelector('#space').getContext('webgl2').getExtension('WEBGL_lose_context');window.__startup.contextRecovery.loseContext()});await p.waitForFunction(()=>window.adsFlight.getState().renderer.status==='lost');sameLayout(before,await launchLayout(p));
+  await p.evaluate(()=>window.__startup.contextRecovery.restoreContext());await p.waitForFunction(()=>window.adsFlight.getState().renderer.ready);sameLayout(before,await launchLayout(p));
+  await p.keyboard.press('Enter');assert.equal((await p.evaluate(()=>window.adsFlight.getState())).storyVisible,true);assert.deepEqual(errors,[]);await p.close();
  }
  {
   const {p,errors}=await pageFor('stale');await p.waitForFunction(()=>window.adsFlight.getState().renderer.frames>0);await p.evaluate(()=>window.__startup.age());await p.waitForFunction(()=>window.__startup.restored>0&&window.adsFlight.getState().renderer.ready);const state=await p.evaluate(()=>window.adsFlight.getState());assert.equal(state.properTime,0);assert.equal(await p.evaluate(()=>window.__startup.lost),1);assert.equal(await p.locator('#launchButton').isEnabled(),true);assert.deepEqual(errors,[]);await p.close();
@@ -40,5 +46,5 @@ const engine=process.argv[2]||'webkit',url=process.env.ADS_URL||'http://127.0.0.
  {
   const {p,errors}=await pageFor('unavailable');await p.waitForFunction(()=>window.adsFlight.getState().renderer.status==='failed');assert.equal(await p.locator('#launchGraphicsStatus [data-reload-graphics]').isVisible(),true);await p.keyboard.press('Enter');assert.equal((await p.evaluate(()=>window.adsFlight.getState())).launched,false);await p.locator('#launchGraphicsStatus [data-reload-graphics]').focus();await Promise.all([p.waitForEvent('domcontentloaded'),p.keyboard.press('Enter')]);assert.deepEqual(errors,[]);await p.close();
  }
- console.log(JSON.stringify({pass:true,engine,coldLoads:reports,delayedFirstFrame:true,staleFenceRecovery:true,unavailableContext:true,unchangedResize:true}));
+ console.log(JSON.stringify({pass:true,engine,coldLoads:reports,delayedFirstFrame:true,stableLaunchLayout:true,staleFenceRecovery:true,unavailableContext:true,unchangedResize:true}));
 }finally{await b.close()}})().catch(e=>{console.error(e);process.exitCode=1});
