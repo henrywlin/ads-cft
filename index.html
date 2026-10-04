@@ -15,7 +15,7 @@
  <div class="intro-actions"><button id="introContinue">NEXT →</button><span>ENTER OR × TO CONTINUE</span></div>
 </dialog>
 <section id="launchScreen" aria-label="Arcade launch screen">
- <div class="launch-top"><span>1 PLAYER</span><span>GLOBAL AdS₄</span><span>c = L = 1</span></div>
+ <div class="launch-top" aria-hidden="true"></div>
  <div class="launch-center"><h1>AdS <span>CFT</span></h1><p>Cosmic Flight Trainer</p>
  <div class="launch-pilot-title">SELECT YOUR PILOT</div><div class="launch-pilots" role="group" aria-label="Pilot selection, use arrow keys to choose">
   <button data-launch-pilot="0" class="selected" aria-pressed="true"><span class="pilot-portrait" style="--pilot-position:0%"></span><strong>Maldacena</strong></button>
@@ -24,7 +24,7 @@
   <button data-launch-pilot="3" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:75%"></span><strong>Polyakov</strong></button>
   <button data-launch-pilot="4" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:100%"></span><strong>Witten</strong></button>
  </div><button id="launchButton" disabled>LAUNCH FLIGHT</button><div id="launchGraphicsStatus" class="graphics-status" role="status"><p>Preparing the flight view…</p><button data-reload-graphics hidden>RELOAD GAME</button></div><span class="launch-enter">ARROWS TO CHOOSE · ENTER TO LAUNCH</span></div>
- <div class="launch-bottom"><span>72 VESSELS · ONE CURVED SPACETIME</span><button id="launchSound" aria-pressed="true">SOUND ON</button><span class="launch-audio-note">Original synth score · begins on launch</span></div>
+ <div class="launch-bottom"><button id="launchSound" aria-pressed="true">SOUND ON</button></div>
 </section>
 <main id="app" inert>
  <header><a class="brand" href="./" aria-label="AdS CFT home"><span class="brand-icon">✧</span><span>AdS <b>CFT</b></span></a><span class="header-description">Cosmic Flight Trainer</span><button id="pilotButton" class="pilot-button" aria-label="Choose pilot, currently Juan Maldacena"><span class="pilot-portrait" id="currentPortrait" data-avatar="0" style="--pilot-position:0%"></span><span><small>PILOT</small><b id="pilotName">Maldacena</b></span></button><div class="header-actions"><button id="cameraButton" aria-label="Switch to cockpit view">Cockpit</button><button id="physicsButton">The physics</button><button id="helpButton" class="icon-button" aria-label="Flight controls">?</button><button id="fullscreenButton" class="icon-button" aria-label="Enter fullscreen">⛶</button></div></header>
