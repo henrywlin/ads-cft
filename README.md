@@ -4,7 +4,7 @@ Cosmic Flight Trainer.
 
 The home screen selects your pilot. Use arrow keys to move between pilots; selection wraps at either end, and Tab also reaches the selected pilot and launch controls. Launch Flight or Enter opens five briefing popups over the visible game, one paragraph per popup. The opening reads ‘The year is 2126 AD, or 98 AAGI.’ Enter or the × dismisses the current paragraph and opens the next; the last dismissal starts flight. Next/Begin Flight buttons and Escape also advance the briefing. Longer paragraphs scroll inside the popup on smaller screens; the close and continue controls remain visible. Ship clocks stay stopped while you read.
 
-The retro launch screen lets you select a pilot and enable an original procedural synth score. Audio starts on a user gesture; the cockpit Sound button mutes it.
+The retro launch screen focuses on pilot selection, with launch and sound controls. Audio starts on a user gesture; the cockpit Sound button mutes it.
 
 Missions arrive as concise Accept/Decline popups over the flight after **15 and 45 seconds of foreground play**. The briefing, pause, hidden tabs and open dialogs do not count. Time warp does not change these deadlines. The first offer is **Trick Shot**: destroy a traffic ship with your own pulse after a boundary reflection. Direct, NPC and self hits do not qualify. The gold BANK AIM cue predicts a reflected hit on the marked ship; other hulls can intercept it.
 
