@@ -11,13 +11,14 @@ const engine=process.argv[2]||'chromium';
   `})});
   await page.goto(process.env.ADS_URL||'http://127.0.0.1:8081/',{waitUntil:'domcontentloaded'});
   await page.waitForFunction(()=>window.adsFlight?.getState().renderer.ready);
-  await page.keyboard.press('v');assert.equal(await page.evaluate(()=>window.adsFlight.getState().velocityArrow),true);
+  await page.keyboard.press('v');assert.equal(await page.evaluate(()=>window.adsFlight.getState().velocityArrow),false);
   await page.locator('#launchSound').click();await page.locator('#launchButton').click();
-  await page.keyboard.press('v');assert.equal(await page.evaluate(()=>window.adsFlight.getState().velocityArrow),true);
+  await page.keyboard.press('v');assert.equal(await page.evaluate(()=>window.adsFlight.getState().velocityArrow),false);
   for(let i=0;i<5;i++)await page.keyboard.press('Enter');
   await page.evaluate(()=>{window.__velocityQa.isolate();window.adsFlight.setPause(true);window.__velocityQa.fixture(false)});
   const attached=await page.evaluate(()=>window.__velocityQa.cue());assert.equal(attached.attached,true);assert.ok(Math.hypot(attached.x-attached.tailX,attached.y-attached.tailY)>=35,'Visible arrow is at least 36 pixels long');
-  await page.locator('#space').focus();
+  assert.equal(await page.locator('#velocityToggle').getAttribute('aria-checked'),'false');
+  await page.locator('#space').focus();await page.keyboard.press('v');assert.equal(await page.evaluate(()=>window.adsFlight.getState().velocityArrow),true);
   async function pixels(){return page.evaluate(()=>{const c=document.querySelector('#overlay'),ctx=c.getContext('2d'),cue=window.__velocityQa.cue(),rect=c.getBoundingClientRect(),sx=c.width/rect.width,sy=c.height/rect.height;return Array.from(ctx.getImageData(Math.round((cue.x-22)*sx),Math.round((cue.y-12)*sy),Math.round(44*sx),Math.round(40*sy)).data)})}
   await page.waitForTimeout(150);const visible=await pixels(),clock=await page.evaluate(()=>window.adsFlight.getState().properTime);
   await page.keyboard.press('v');await page.waitForTimeout(150);assert.equal(await page.evaluate(()=>window.adsFlight.getState().velocityArrow),false);assert.notDeepEqual(await pixels(),visible,'V removes the drawn arrow');

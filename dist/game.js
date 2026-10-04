@@ -24,7 +24,7 @@ let launched=false,dirty=true,pendingFence=null,musicWanted=true,effectTime=0,re
 const EXPLOSION_SECONDS=1.6,touchHolds=new Map();
 let chase=true,beams=[],lastShot=-Infinity,kills=0,shots=0,lastImpact=null;
 let selectedImageShip=null,imageFrame=null;
-let velocityArrowEnabled=true;
+let velocityArrowEnabled=false;
 function toggleVelocityArrow(){velocityArrowEnabled=!velocityArrowEnabled;dirty=true;$('velocityToggle').classList.toggle('on',velocityArrowEnabled);$('velocityToggle').setAttribute('aria-checked',String(velocityArrowEnabled))}
 $('velocityToggle').onclick=toggleVelocityArrow;
 const flightProgram=new MissionProgram();let missionTargetId=null,pendingMission=null;const announcedMissions=new Set();
