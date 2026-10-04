@@ -8,7 +8,9 @@ import {ChaseCamera,rocketPoint} from './chase.js?v=15';
 import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=15';
 import {compactRadius,mapCoordinates} from './map.js?v=15';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
-const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,depth:false,stencil:false,powerPreference:'high-performance'});
+// Static launch/briefing frames must survive compositor clears in Safari.
+// Let the browser choose the GPU instead of forcing a graphics switch on launch.
+const gl=(()=>{try{return canvas.getContext('webgl2',{alpha:false,antialias:false,depth:false,stencil:false,preserveDrawingBuffer:true,powerPreference:'default'})}catch(error){console.warn('Graphics context creation failed',error);return null}})();
 const fleet=makeFleet(72),L_SECONDS=30,keys=new Set(),trafficFire=new TrafficFire(fleet);
 const latestPlayerBeam=()=>{for(let i=beams.length-1;i>=0;i--)if(beams[i].owner!=='traffic')return beams[i];return null};
 const destroyedCount=()=>fleet.filter(s=>Number.isFinite(s.deathTime)).length;
@@ -23,6 +25,9 @@ function missionTarget(){if(!flightProgram.accepted.has('trick-shot')||trickMiss
 const gpuInfo=gl?.getExtension('WEBGL_debug_renderer_info'),softwareRenderer=gpuInfo&&/SwiftShader|llvmpipe|Software|softpipe/i.test(gl.getParameter(gpuInfo.UNMASKED_RENDERER_WEBGL));
 const resolution=new ResolutionController({software:!!softwareRenderer,coarse:matchMedia('(pointer: coarse)').matches});
 let gpuStarted=0,gpuLastPoll=0,gpuSampleValid=false;
+let graphicsState='starting',graphicsReady=false,surfaceGeneration=0,pendingGeneration=0,graphicsRecoveryAttempts=0,graphicsMessage=null,graphicsRecoveryTimer;
+function graphicsStatus(state,message=''){if(graphicsState===state&&graphicsMessage===message)return;graphicsMessage=message;graphicsState=state;graphicsReady=state==='ready';clearTimeout(graphicsRecoveryTimer);if(state==='lost')graphicsRecoveryTimer=setTimeout(()=>{if(graphicsState==='lost')graphicsStatus('failed','Graphics could not be restored. Reload the game to retry.')},12000);$('launchButton').disabled=!graphicsReady;for(const id of ['launchGraphicsStatus','graphicsStatus']){$(id).hidden=graphicsReady;$(id).querySelector('p').textContent=message;$(id).querySelector('button').hidden=state!=='failed'}}
+document.querySelectorAll('[data-reload-graphics]').forEach(b=>b.onclick=()=>location.reload());
 const pilotColors=['#55dce8','#ff984f','#9f87ff','#f06caa','#8ad86a'];
 let engineLevel=0,engineMode='forward',exhaust=[0,0,-1];
 const chaseCamera=new ChaseCamera();let thrustForce=[0,0,0];
@@ -38,7 +43,7 @@ function clearControls(){thrustForce=[0,0,0];chaseCamera.force=[0,0,0];drag=null
 function held(code){return keys.has(code)||[...touchHolds.values()].some(b=>b.dataset.key===code)}
 function setPause(value){paused=value;clearControls();$('pauseOverlay').hidden=!value;$('pauseButton').innerHTML=value?'▷ <span>Resume</span>':'Ⅱ <span>Pause</span>';$('touchPause').textContent=value?'RESUME':'PAUSE';$('touchPause').setAttribute('aria-pressed',String(value));last=performance.now()}
 function reset(){gameOver=false;deathAnimation=0;$('gameOverScreen').hidden=true;if($('missionOfferDialog').open)$('missionOfferDialog').close();flightProgram.reset();announcedMissions.clear();pendingMission=null;missionTargetId=null;setPause(false);player=initialPlayer();chaseCamera.reset();thrustForce=[0,0,0];trafficFire.reset();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
-function fire(){if(contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]')||player.tau-lastShot<.012)return false;lastShot=player.tau;const beam=createLaser(player,fleet);beam.flashTime=effectTime;beams.push(beam);shots++;score.laser();dirty=true;return true}
+function fire(){if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]')||player.tau-lastShot<.012)return false;lastShot=player.tau;const beam=createLaser(player,fleet);beam.flashTime=effectTime;beams.push(beam);shots++;score.laser();dirty=true;return true}
 $('fireButton').onclick=fire;
 $('retryButton').onclick=()=>{reset();canvas.focus({preventScroll:true})};
 function endFlight(){
@@ -56,7 +61,7 @@ function renderIntro(){introPages.forEach((p,i)=>p.hidden=i!==introStep);$('intr
 function nextIntro(){if($('introScreen').hidden)return;if(++introStep===introPages.length)beginFlight();else renderIntro()}
 function beginFlight(){$('introScreen').close();$('introScreen').hidden=true;$('app').inert=false;document.body.classList.remove('story-open');last=performance.now();canvas.focus({preventScroll:true});notify(`Welcome aboard, ${pilotNames[pilot]} · W to burn, arrow keys to steer`)}
 $('introContinue').onclick=nextIntro;$('introClose').onclick=nextIntro;$('introScreen').addEventListener('cancel',e=>{e.preventDefault();nextIntro()});
-function launch(){if(launched)return;launched=true;$('launchScreen').hidden=true;introStep=0;renderIntro();$('introScreen').hidden=false;$('introScreen').showModal();clearControls();document.body.classList.add('story-open');$('introClose').focus({preventScroll:true});last=performance.now();dirty=true;if(musicWanted)void setMusic(true)}
+function launch(){if(launched||!graphicsReady)return;launched=true;$('launchScreen').hidden=true;introStep=0;renderIntro();$('introScreen').hidden=false;$('introScreen').showModal();clearControls();document.body.classList.add('story-open');$('introClose').focus({preventScroll:true});last=performance.now();dirty=true;if(musicWanted)void setMusic(true)}
 $('launchButton').onclick=launch;$('launchSound').onclick=()=>void setMusic(!musicWanted);$('musicButton').onclick=()=>void setMusic(!musicWanted);
 function openDialog(id){clearControls();$(id).showModal()}
 function offerMission(id){
@@ -92,20 +97,22 @@ $('graphicsQuality').onchange=e=>{resolution.setMode(e.target.value);resize();di
 $('thrust').oninput=e=>{accel=Number(e.target.value);$('thrustValue').value=accel.toFixed(1)};
 $('fullscreenButton').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen()}catch{notify('Fullscreen is unavailable in this browser')}};
 const gameKeys=['KeyW','KeyS','KeyQ','KeyE','KeyF','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'];
-document.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;if(!launched){if(e.code==='Enter'&&e.target.id!=='launchSound'){e.preventDefault();if(!e.repeat){launch()}}else if($('introScreen').hidden&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)){e.preventDefault();const delta=['ArrowRight','ArrowDown'].includes(e.code)?1:-1;selectPilot((pilot+delta+pilotNames.length)%pilotNames.length);document.querySelector(`[data-launch-pilot="${pilot}"]`).focus()}return}if(!$('introScreen').hidden){if(e.code==='Enter'){e.preventDefault();if(!e.repeat)nextIntro()}return}if(e.code==='KeyM'&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)&&(!document.querySelector('dialog[open]')||$('mapDialog').open)){e.preventDefault();if(!e.repeat){if($('mapDialog').open)$('mapDialog').close();else openMap()}return}if(gameOver){if(!document.querySelector('dialog[open]')&&!e.repeat&&(e.code==='KeyR'||e.code==='Enter')){e.preventDefault();reset();canvas.focus({preventScroll:true})}return}if(document.querySelector('dialog[open]')||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(contextLost)return;if(gameKeys.includes(e.code)){e.preventDefault();keys.add(e.code);if(e.code==='KeyF'&&!e.repeat)fire()}if(!e.repeat&&e.code==='KeyP')setPause(!paused);if(!e.repeat&&e.code==='KeyR')reset()});
+document.addEventListener('keydown',e=>{if(e.ctrlKey||e.metaKey||e.altKey)return;if(!launched){if(e.code==='Enter'&&e.target.id!=='launchSound'&&!e.target.matches('[data-reload-graphics]')){e.preventDefault();if(!e.repeat){launch()}}else if($('introScreen').hidden&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)){e.preventDefault();const delta=['ArrowRight','ArrowDown'].includes(e.code)?1:-1;selectPilot((pilot+delta+pilotNames.length)%pilotNames.length);document.querySelector(`[data-launch-pilot="${pilot}"]`).focus()}return}if(!$('introScreen').hidden){if(e.code==='Enter'){e.preventDefault();if(!e.repeat)nextIntro()}return}if(e.code==='KeyM'&&!['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName)&&(!document.querySelector('dialog[open]')||$('mapDialog').open)){e.preventDefault();if(!e.repeat){if($('mapDialog').open)$('mapDialog').close();else openMap()}return}if(gameOver){if(!document.querySelector('dialog[open]')&&!e.repeat&&(e.code==='KeyR'||e.code==='Enter')){e.preventDefault();reset();canvas.focus({preventScroll:true})}return}if(document.querySelector('dialog[open]')||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(!graphicsReady||contextLost)return;if(gameKeys.includes(e.code)){e.preventDefault();keys.add(e.code);if(e.code==='KeyF'&&!e.repeat)fire()}if(!e.repeat&&e.code==='KeyP')setPause(!paused);if(!e.repeat&&e.code==='KeyR')reset()});
 document.addEventListener('focusin',e=>{if(['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))clearControls()});
-document.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',clearControls);document.addEventListener('visibilitychange',()=>{clearControls();last=performance.now()});
-canvas.addEventListener('pointerdown',e=>{if(contextLost||gameOver||!launched||paused)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY};canvas.setPointerCapture(e.pointerId)});
-canvas.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId||paused)return;rotate(player,(e.clientX-drag.x)*.003,-(e.clientY-drag.y)*.003,0);dirty=true;drag={...drag,x:e.clientX,y:e.clientY}});
+document.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',clearControls);document.addEventListener('visibilitychange',()=>{clearControls();last=performance.now();if(!document.hidden){gpuStarted=last;dirty=true}});
+window.addEventListener('pageshow',()=>{clearControls();last=performance.now();gpuStarted=last;dirty=true});
+canvas.addEventListener('pointerdown',e=>{if(!graphicsReady||contextLost||gameOver||!launched||paused)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY};canvas.setPointerCapture(e.pointerId)});
+canvas.addEventListener('pointermove',e=>{if(!graphicsReady||!drag||drag.id!==e.pointerId||paused)return;rotate(player,(e.clientX-drag.x)*.003,-(e.clientY-drag.y)*.003,0);dirty=true;drag={...drag,x:e.clientX,y:e.clientY}});
 canvas.addEventListener('pointerup',e=>{if(drag?.id!==e.pointerId)return;if(Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4)fire();drag=null});canvas.addEventListener('pointercancel',()=>drag=null);canvas.addEventListener('lostpointercapture',()=>drag=null);
 document.querySelectorAll('[data-key]').forEach(b=>{
- b.addEventListener('pointerdown',e=>{e.preventDefault();if(contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]'))return;touchHolds.set(e.pointerId,b);b.classList.add('pressed');b.setPointerCapture(e.pointerId);if(b.dataset.key==='KeyF')fire()});
+ b.addEventListener('pointerdown',e=>{e.preventDefault();if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]'))return;touchHolds.set(e.pointerId,b);b.classList.add('pressed');b.setPointerCapture(e.pointerId);if(b.dataset.key==='KeyF')fire()});
  for(const event of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(event,e=>{touchHolds.delete(e.pointerId);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')});
- b.addEventListener('click',e=>{if(contextLost||gameOver||!launched||!$('introScreen').hidden||paused)return;if(e.detail===0){if(b.dataset.key==='KeyF')fire();else{const token=Symbol();touchHolds.set(token,b);b.classList.add('pressed');setTimeout(()=>{touchHolds.delete(token);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')},140)}}});
+ b.addEventListener('click',e=>{if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused)return;if(e.detail===0){if(b.dataset.key==='KeyF')fire();else{const token=Symbol();touchHolds.set(token,b);b.classList.add('pressed');setTimeout(()=>{touchHolds.delete(token);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')},140)}}});
 });
-let program,skyTexture,shipTexture,locations={},fleetData=new Float32Array(9*73*4);
+let program,skyTexture,shipTexture,vertexArray,locations={},fleetData=new Float32Array(9*73*4);
 function initRenderer(){
- if(!gl){notify('This flight simulator needs a browser with WebGL 2. Try a current browser with graphics acceleration enabled.');return}
+ graphicsStatus('starting','Preparing the flight view…');
+ if(!gl){graphicsStatus('failed','Graphics could not start. Reload the game to retry.');return}
  const vertex=`#version 300 es
  precision highp float;
  precision highp int;
@@ -253,7 +260,7 @@ function initRenderer(){
  }`;
  function compile(type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));return shader}
  try{
-  program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vertex));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragment));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);gl.bindVertexArray(gl.createVertexArray());
+  program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vertex));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragment));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);vertexArray=gl.createVertexArray();gl.bindVertexArray(vertexArray);
   for(const n of ['resolution','Xt','Ut','Rt','Vt','Ft','Xs','Us','Rs','Vs','Fs','showGrid','sky','fleet','shipCount','observerTime','playerColor','engineBurn'])locations[n]=gl.getUniformLocation(program,n);
   skyTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,skyTexture);
   const sky=document.createElement('canvas');sky.width=Math.min(2048,gl.getParameter(gl.MAX_TEXTURE_SIZE));sky.height=sky.width/2;const ctx=sky.getContext('2d'),rand=seeded(914982);
@@ -270,15 +277,16 @@ function initRenderer(){
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sky);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   shipTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,9,73,0,gl.RGBA,gl.FLOAT,fleetData);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.uniform1i(locations.sky,0);gl.uniform1i(locations.fleet,1);
   if(gl.getError()!==gl.NO_ERROR)throw Error('Unable to initialize the ray-tracing textures');
- }catch(e){console.error(e);notify('The flight renderer could not start. Try reloading with graphics acceleration enabled.');program=null}
+ }catch(e){console.error(e);program=null;graphicsStatus('failed','Graphics could not start. Reload the game to retry.')}
 }
-canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();clearControls();contextLost=true;program=null;pendingFence=null;notify('Graphics interrupted · restoring the view…')});
-canvas.addEventListener('webglcontextrestored',()=>{contextLost=false;initRenderer();resize();dirty=true;notify('Graphics restored')});
-initRenderer();
+canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();clearControls();contextLost=true;program=null;pendingFence=null;graphicsStatus('lost','Restoring the flight view…')});
+canvas.addEventListener('webglcontextrestored',()=>{contextLost=false;initRenderer();resize();dirty=true;last=performance.now()});
 function resize(){
  const r=canvas.getBoundingClientRect(),dimensions=resolution.configure(r.width,r.height,window.devicePixelRatio||1,matchMedia('(pointer: coarse)').matches);
- width=r.width;height=r.height;canvas.width=dimensions.width;canvas.height=dimensions.height;gpuSampleValid=false;
- const hudDpr=Math.min(window.devicePixelRatio||1,2);hud.width=Math.max(1,Math.round(width*hudDpr));hud.height=Math.max(1,Math.round(height*hudDpr));hctx.setTransform(hudDpr,0,0,hudDpr,0,0);
+ width=r.width;height=r.height;
+ // Assigning even the SAME canvas size discards its drawing buffer.
+ if(canvas.width!==dimensions.width||canvas.height!==dimensions.height){canvas.width=dimensions.width;canvas.height=dimensions.height;surfaceGeneration++;if(program&&!contextLost&&graphicsState!=='failed')graphicsStatus('starting','Preparing the flight view…')}gpuSampleValid=false;
+ const hudDpr=Math.min(window.devicePixelRatio||1,2),hudWidth=Math.max(1,Math.round(width*hudDpr)),hudHeight=Math.max(1,Math.round(height*hudDpr));if(hud.width!==hudWidth)hud.width=hudWidth;if(hud.height!==hudHeight)hud.height=hudHeight;hctx.setTransform(hudDpr,0,0,hudDpr,0,0);
  if(gl)gl.viewport(0,0,canvas.width,canvas.height);
  dirty=true;
 }
@@ -286,11 +294,29 @@ new ResizeObserver(resize).observe(canvas.parentElement);
 window.addEventListener('resize',resize);
 window.visualViewport?.addEventListener('resize',resize);
 function row(i,col,values){fleetData.set(values,(i*9+col)*4)}
+function recoverGraphics(){
+ if(contextLost||graphicsState==='lost'||graphicsState==='failed')return;
+ clearControls();graphicsReady=false;
+ const extension=gl?.getExtension('WEBGL_lose_context');
+ if(extension&&graphicsRecoveryAttempts++<1){
+  graphicsStatus('lost','Restoring the flight view…');extension.loseContext();
+  setTimeout(()=>{if(gl.isContextLost())extension.restoreContext()},120);
+ }else{graphicsStatus('failed','Graphics stopped responding. Reload the game to retry.')}
+}
+function pollFrame(active=false){
+ if(!gl||!program||contextLost||graphicsState==='lost'||graphicsState==='failed')return false;
+ if(!pendingFence)return true;
+ const poll=performance.now();gpuSampleValid=gpuSampleValid&&active&&poll-gpuLastPoll<250;gpuLastPoll=poll;
+ const status=gl.clientWaitSync(pendingFence,0,0);
+ if(status===gl.TIMEOUT_EXPIRED){if(!document.hidden&&poll-gpuStarted>8000)recoverGraphics();return false}
+ if(status===gl.WAIT_FAILED){recoverGraphics();return false}
+ gl.deleteSync(pendingFence);pendingFence=null;
+ if(pendingGeneration===surfaceGeneration){if(!graphicsReady&&gl.getError()!==gl.NO_ERROR){recoverGraphics();return false}graphicsRecoveryAttempts=0;graphicsStatus('ready')}
+ if(resolution.observe(poll-gpuStarted,{active,continuous:gpuSampleValid}))resize();
+ return true;
+}
 function draw(active=false){
- if(gl&&program&&!contextLost&&pendingFence){const poll=performance.now();gpuSampleValid=gpuSampleValid&&active&&poll-gpuLastPoll<250;gpuLastPoll=poll;
-  const status=gl.clientWaitSync(pendingFence,0,0);if(status===gl.TIMEOUT_EXPIRED)return;gl.deleteSync(pendingFence);pendingFence=null;
-  if(resolution.observe(poll-gpuStarted,{active,continuous:gpuSampleValid}))resize();
- }
+ if(!pollFrame(active))return;
  const observer=viewObserver();
  hctx.clearRect(0,0,width,height);hctx.font='7px "Arcade",monospace';let labeled=0;
  const views=new Map(),traffic=fleet.filter(s=>{
@@ -324,7 +350,8 @@ function draw(active=false){
  drawMissionAim();
  if(gameOver&&deathAnimation<EXPLOSION_SECONDS)drawExplosion(width/2,height*.68,Math.min(.999,deathAnimation/EXPLOSION_SECONDS),{boundRadius:.065,size:.8}, {distance:.17});
  if(!gl||!program||contextLost)return;
- gl.useProgram(program);
+ gl.useProgram(program);gl.bindVertexArray(vertexArray);
+ gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,skyTexture);
  for(const name of ['X','U','R','V','F']){gl.uniform2fv(locations[name+'t'],observer[name].slice(0,2));gl.uniform3fv(locations[name+'s'],observer[name].slice(2))}
  gl.uniform1f(locations.observerTime,observer.t);
  gl.uniform2f(locations.resolution,canvas.width,canvas.height);gl.uniform1f(locations.showGrid,grid?1:0);
@@ -339,7 +366,7 @@ function draw(active=false){
   const bounds=shipBounds(s,observer,3/canvas.height,!s.own);bounds[3]=Number.isFinite(s.deathTime)?s.deathTime:-1;row(i,8,bounds);
  });
  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,9,73,gl.RGBA,gl.FLOAT,fleetData);gl.drawArrays(gl.TRIANGLES,0,3);
- pendingFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();gpuStarted=performance.now();gpuLastPoll=gpuStarted;gpuSampleValid=active;dirty=false;renderedFrames++;
+ pendingFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);if(!pendingFence){recoverGraphics();return}pendingGeneration=surfaceGeneration;gl.flush();gpuStarted=performance.now();gpuLastPoll=gpuStarted;gpuSampleValid=active;dirty=false;renderedFrames++;
 }
 function drawMissionAim(){
  const target=missionTarget(),aim=target&&reflectedAim(player,target);if(!aim)return;
@@ -466,7 +493,8 @@ function drawMap(c=mctx){
 }
 function tick(now){
  const rawElapsed=Math.max(0,(now-last)/1000),elapsed=Math.min(.06,rawElapsed);last=now;fps=fps*.96+.04/Math.max(.001,rawElapsed);
- const active=!gameOver&&!contextLost&&launched&&$('introScreen').hidden&&!paused&&!document.querySelector('dialog[open]')&&!document.hidden;
+ pollFrame(!gameOver&&!contextLost&&launched&&$('introScreen').hidden&&!paused&&!document.querySelector('dialog[open]')&&!document.hidden);
+ const active=graphicsReady&&!gameOver&&!contextLost&&launched&&$('introScreen').hidden&&!paused&&!document.querySelector('dialog[open]')&&!document.hidden;
  if(active){const turn=.65*elapsed;rotate(player,((held('ArrowRight')?1:0)-(held('ArrowLeft')?1:0))*turn,((held('ArrowUp')?1:0)-(held('ArrowDown')?1:0))*turn,((held('KeyQ')?1:0)-(held('KeyE')?1:0))*turn)}
  const command=burnCommand(player,active&&held('KeyW'),active&&held('KeyS'),active&&held('Space'),accel),demand=command.level;
  thrustForce=command.force;chaseCamera.force=command.force.slice();
@@ -493,10 +521,10 @@ function tick(now){
   if(!gameOver){announceMissions();const offer=flightProgram.advance(rawElapsed);if(offer)offerMission(offer)}
  }
  if(gameOver&&deathAnimation<EXPLOSION_SECONDS){deathAnimation+=rawElapsed;dirty=true;if(deathAnimation>=EXPLOSION_SECONDS){$('gameOverScreen').hidden=false;$('retryButton').focus({preventScroll:true})}}
- if(active||dirty)draw(active);if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
+ if(!document.hidden&&(active||dirty))draw(active);if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
 }
 // State read-back is useful for scientific inspection and automated validation.
-window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:!!program&&!contextLost,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
+window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:graphicsReady&&!contextLost,status:graphicsState,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
 if(document.modelContext?.registerTool){
  const lifecycle=new AbortController();
  const specs=[
@@ -509,4 +537,5 @@ if(document.modelContext?.registerTool){
  ];
  for(const tool of specs){try{Promise.resolve(document.modelContext.registerTool(tool,{signal:lifecycle.signal})).catch(console.warn)}catch(e){console.warn(e)}}window.addEventListener('pagehide',()=>lifecycle.abort(),{once:true});
 }
-resize();updateUi();requestAnimationFrame(tick);
+// Paint pilot selection before cold shader compilation can occupy the main thread.
+resize();updateUi();requestAnimationFrame(()=>requestAnimationFrame(()=>{initRenderer();resize();last=performance.now();requestAnimationFrame(tick)}));
