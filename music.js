@@ -60,7 +60,10 @@ export class ArcadeScore{
   else{const s=c.createBufferSource(),f=c.createBiquadFilter();s.buffer=this.noise;f.type='highpass';f.frequency.value=kind==='hat'?6500:1800;s.connect(f);f.connect(g);g.gain.setValueAtTime(kind==='hat'?.045:.14,time);g.gain.exponentialRampToValueAtTime(.0001,time+(kind==='hat'?.035:.13));s.start(time);s.stop(time+.14)}
  }
  schedule(){
-  const sixteenth=60/92/4;
+  const sixteenth=60/92/4,now=this.context.currentTime;
+  // Skip missed beats after tab throttling instead of allocating expired voices.
+  if(this.next<now-.18){const missed=Math.ceil((now-this.next)/sixteenth);this.step+=missed;this.next+=missed*sixteenth}
+
   while(this.next<this.context.currentTime+.18){
    const step=this.step,beat=step%16,chord=Math.floor(step/32)%4;
    const chords=[[50,53,57,64,69],[46,50,53,57,65],[48,53,57,64,67],[48,55,58,62,67]],roots=[38,34,41,36],pattern=[0,2,1,3,2,4,1,3];
