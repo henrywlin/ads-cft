@@ -1,4 +1,5 @@
 import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot,initialHistory,retardedRocket} from './physics.js';
+import {ResolutionController} from './resolution.js?v=6';
 import {ArcadeScore} from './music.js?v=4';
 import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
@@ -9,7 +10,8 @@ let launched=false,dirty=true,pendingFence=null,musicWanted=true,effectTime=0,re
 const EXPLOSION_SECONDS=1.6,touchHolds=new Map();
 let chase=true,history=initialHistory(player),beams=[],lastShot=-Infinity,kills=0,shots=0,lastImpact=null;
 const gpuInfo=gl?.getExtension('WEBGL_debug_renderer_info'),softwareRenderer=gpuInfo&&/SwiftShader|llvmpipe|Software|softpipe/i.test(gl.getParameter(gpuInfo.UNMASKED_RENDERER_WEBGL));
-let pixelBudget=softwareRenderer?45000:matchMedia('(pointer: coarse)').matches?240000:900000,gpuStarted=0,slowFrames=0;
+const resolution=new ResolutionController({software:!!softwareRenderer,coarse:matchMedia('(pointer: coarse)').matches});
+let gpuStarted=0,gpuLastPoll=0,gpuSampleValid=false;
 const pilotColors=['#55dce8','#ff984f','#9f87ff','#f06caa','#8ad86a'];
 let engineLevel=0,engineMode='forward',exhaust=[0,0,-1];
 const pilotNames=['Juan Maldacena','Steven Gubser','Igor Klebanov','Alexander Polyakov','Edward Witten'];let pilot=0;
@@ -19,7 +21,7 @@ function updateControls(){const enabled=controlsPreference??(innerWidth<=900||ma
 $('controlsButton').onclick=()=>{controlsPreference=!$('app').classList.contains('controls-visible');updateControls()};
 window.addEventListener('resize',updateControls);updateControls();
 function notify(s){$('notice').textContent=s;$('notice').classList.add('show');clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('notice').classList.remove('show'),3500)}
-function clearControls(){engineLevel=0;score.setThrust(0);dirty=true;keys.clear();touchHolds.clear();document.querySelectorAll('[data-key]').forEach(b=>b.classList.remove('pressed'))}
+function clearControls(){gpuSampleValid=false;resolution.resetSamples();engineLevel=0;score.setThrust(0);dirty=true;keys.clear();touchHolds.clear();document.querySelectorAll('[data-key]').forEach(b=>b.classList.remove('pressed'))}
 function held(code){return keys.has(code)||[...touchHolds.values()].some(b=>b.dataset.key===code)}
 function setPause(value){paused=value;clearControls();$('pauseOverlay').hidden=!value;$('pauseButton').innerHTML=value?'▷ <span>Resume</span>':'Ⅱ <span>Pause</span>';$('touchPause').textContent=value?'RESUME':'PAUSE';$('touchPause').setAttribute('aria-pressed',String(value));last=performance.now()}
 function reset(){player=initialPlayer();history=initialHistory(player);beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
@@ -30,7 +32,9 @@ $('touchCamera').onclick=()=>setCamera(chase?'cockpit':'chase');
 function setCamera(view){if(!['chase','cockpit'].includes(view))throw Error('Unknown camera view');chase=view==='chase';dirty=true;$('cameraButton').textContent=chase?'Cockpit':'Chase';$('touchCamera').textContent=chase?'COCKPIT':'CHASE';$('viewLabel').textContent=chase?'CHASE VIEW':'COCKPIT VIEW';$('cameraButton').setAttribute('aria-label',chase?'Switch to cockpit view':'Switch to chase view');canvas.setAttribute('aria-label',chase?'Ray-traced chase view of your rocket':'Ray-traced view from your rocket cockpit')}
 $('cameraButton').onclick=()=>setCamera(chase?'cockpit':'chase');
 async function setMusic(value){musicWanted=value;$('launchSound').textContent=value?'SOUND ON':'SOUND OFF';$('launchSound').setAttribute('aria-pressed',String(value));$('musicButton').innerHTML=`<span>Sound ${value?'on':'off'}</span>`;$('musicButton').setAttribute('aria-pressed',String(value));if(value){try{await score.start()}catch{notify('Audio could not start. Toggle Sound to try again.')}}else score.stop()}
-function launch(){if(launched)return;launched=true;$('launchScreen').hidden=true;last=performance.now();dirty=true;if(musicWanted)void setMusic(true);notify(`Welcome aboard, ${pilotNames[pilot]} · W to burn, arrow keys to steer`)}
+function showLaunchScreen(){$('introScreen').hidden=true;$('launchScreen').hidden=false;document.body.classList.remove('story-open');$('launchButton').focus({preventScroll:true})}
+$('introContinue').onclick=showLaunchScreen;
+function launch(){if(launched)return;launched=true;$('introScreen').hidden=true;$('launchScreen').hidden=true;$('app').inert=false;document.body.classList.remove('story-open');last=performance.now();dirty=true;if(musicWanted)void setMusic(true);notify(`Welcome aboard, ${pilotNames[pilot]} · W to burn, arrow keys to steer`)}
 $('launchButton').onclick=launch;$('launchSound').onclick=()=>void setMusic(!musicWanted);$('musicButton').onclick=()=>void setMusic(!musicWanted);
 function openDialog(id){clearControls();$(id).showModal()}
 $('physicsButton').onclick=()=>openDialog('physicsDialog');$('helpButton').onclick=()=>openDialog('helpDialog');
@@ -39,21 +43,22 @@ function selectPilot(index){
  if(!Number.isInteger(index)||index<0||index>=pilotNames.length)throw Error('Unknown pilot');pilot=index;dirty=true;
  $('pilotName').textContent=pilotNames[index].split(' ').at(-1);$('currentPortrait').style.setProperty('--pilot-position',`${index*25}%`);$('pilotButton').setAttribute('aria-label',`Choose pilot, currently ${pilotNames[index]}`);
  document.querySelectorAll('[data-pilot]').forEach(b=>{const selected=Number(b.dataset.pilot)===index;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));b.querySelector('.pilot-select-label').textContent=selected?'Selected':'Select pilot'});
- document.querySelectorAll('[data-launch-pilot]').forEach(b=>{const selected=Number(b.dataset.launchPilot)===index;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected))});
+ document.querySelectorAll('[data-launch-pilot]').forEach(b=>{const selected=Number(b.dataset.launchPilot)===index;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));b.tabIndex=selected?0:-1});
  if($('pilotDialog').open)$('pilotDialog').close();if(launched)notify(`Pilot selected · ${pilotNames[index]}`);
 }
 document.querySelectorAll('[data-pilot]').forEach(b=>b.onclick=()=>selectPilot(Number(b.dataset.pilot)));
-document.querySelectorAll('[data-launch-pilot]').forEach(b=>b.onclick=()=>selectPilot(Number(b.dataset.launchPilot)));
+document.querySelectorAll('[data-launch-pilot]').forEach(b=>{b.tabIndex=Number(b.dataset.launchPilot)===pilot?0:-1;b.onclick=()=>selectPilot(Number(b.dataset.launchPilot))});
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=()=>b.closest('dialog').close());
 $('startButton').onclick=()=>$('helpDialog').close();
 document.querySelectorAll('dialog').forEach(d=>d.addEventListener('click',e=>{if(e.target===d){const r=d.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)d.close()}}));
 $('pauseButton').onclick=()=>setPause(!paused);$('resumeButton').onclick=()=>setPause(false);$('resetButton').onclick=reset;
 $('gridToggle').onclick=()=>{grid=!grid;dirty=true;$('gridToggle').classList.toggle('on',grid);$('gridToggle').setAttribute('aria-checked',String(grid))};
 $('warp').onchange=e=>{warp=Number(e.target.value);notify(`Time warp ${warp}× · all clocks and trajectories advance together`)};
+$('graphicsQuality').onchange=e=>{resolution.setMode(e.target.value);resize();dirty=true};
 $('thrust').oninput=e=>{accel=Number(e.target.value);$('thrustValue').value=accel.toFixed(1)};
 $('fullscreenButton').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await $('app').requestFullscreen()}catch{notify('Fullscreen is unavailable in this browser')}};
 const gameKeys=['KeyW','KeyS','KeyQ','KeyE','KeyF','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','Space'];
-document.addEventListener('keydown',e=>{if(!launched){if(e.code==='Enter'){e.preventDefault();launch()}return}if(document.querySelector('dialog[open]')||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(gameKeys.includes(e.code)){e.preventDefault();keys.add(e.code)}if(!e.repeat&&e.code==='KeyP')setPause(!paused);if(!e.repeat&&e.code==='KeyR')reset()});
+document.addEventListener('keydown',e=>{if(!launched){if(e.code==='Enter'){e.preventDefault();if(!e.repeat){if(!$('introScreen').hidden)showLaunchScreen();else launch()}}else if($('introScreen').hidden&&['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)){e.preventDefault();const delta=['ArrowRight','ArrowDown'].includes(e.code)?1:-1;selectPilot((pilot+delta+pilotNames.length)%pilotNames.length);document.querySelector(`[data-launch-pilot="${pilot}"]`).focus()}return}if(document.querySelector('dialog[open]')||['INPUT','SELECT','TEXTAREA'].includes(e.target.tagName))return;if(gameKeys.includes(e.code)){e.preventDefault();keys.add(e.code)}if(!e.repeat&&e.code==='KeyP')setPause(!paused);if(!e.repeat&&e.code==='KeyR')reset()});
 document.addEventListener('keyup',e=>keys.delete(e.code));window.addEventListener('blur',clearControls);document.addEventListener('visibilitychange',()=>{clearControls();last=performance.now()});
 canvas.addEventListener('pointerdown',e=>{if(!launched||paused)return;drag={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY};canvas.setPointerCapture(e.pointerId)});
 canvas.addEventListener('pointermove',e=>{if(!drag||drag.id!==e.pointerId||paused)return;rotate(player,(e.clientX-drag.x)*.003,-(e.clientY-drag.y)*.003,0);dirty=true;drag={...drag,x:e.clientX,y:e.clientY}});
@@ -231,8 +236,8 @@ canvas.addEventListener('webglcontextlost',e=>{e.preventDefault();contextLost=tr
 canvas.addEventListener('webglcontextrestored',()=>{contextLost=false;initRenderer();resize();dirty=true;notify('Graphics restored')});
 initRenderer();
 function resize(){
- const r=canvas.getBoundingClientRect(),dpr=Math.min(window.devicePixelRatio||1,1.25),factor=Math.min(1,Math.sqrt(pixelBudget/Math.max(1,r.width*r.height*dpr*dpr)));
- width=r.width;height=r.height;canvas.width=Math.max(1,Math.round(width*dpr*factor));canvas.height=Math.max(1,Math.round(height*dpr*factor));
+ const r=canvas.getBoundingClientRect(),dimensions=resolution.configure(r.width,r.height,window.devicePixelRatio||1,matchMedia('(pointer: coarse)').matches);
+ width=r.width;height=r.height;canvas.width=dimensions.width;canvas.height=dimensions.height;gpuSampleValid=false;
  const hudDpr=Math.min(window.devicePixelRatio||1,2);hud.width=Math.max(1,Math.round(width*hudDpr));hud.height=Math.max(1,Math.round(height*hudDpr));hctx.setTransform(hudDpr,0,0,hudDpr,0,0);
  if(gl)gl.viewport(0,0,canvas.width,canvas.height);
  dirty=true;
@@ -241,7 +246,7 @@ new ResizeObserver(resize).observe(canvas.parentElement);
 window.addEventListener('resize',resize);
 window.visualViewport?.addEventListener('resize',resize);
 function row(i,col,values){fleetData.set(values,(i*9+col)*4)}
-function draw(){
+function draw(active=false){
  const observer=chase?chaseObserver(player):player;
  hctx.clearRect(0,0,width,height);hctx.font='7px "Arcade",monospace';let labeled=0;
  const views=new Map(),traffic=fleet.filter(s=>{
@@ -271,9 +276,9 @@ function draw(){
  if(ownState)drawEnginePlume(observer,ownState);
  drawLaserPulses(observer);
  if(!gl||!program||contextLost)return;
- if(pendingFence){const status=gl.clientWaitSync(pendingFence,0,0);if(status===gl.TIMEOUT_EXPIRED)return;gl.deleteSync(pendingFence);pendingFence=null;
-  if(performance.now()-gpuStarted>85)slowFrames++;else slowFrames=0;
-  if(slowFrames>=3&&pixelBudget>45000){pixelBudget=Math.max(45000,Math.floor(pixelBudget*.65));slowFrames=0;resize()}
+ if(pendingFence){const poll=performance.now();gpuSampleValid=gpuSampleValid&&active&&poll-gpuLastPoll<250;gpuLastPoll=poll;
+  const status=gl.clientWaitSync(pendingFence,0,0);if(status===gl.TIMEOUT_EXPIRED)return;gl.deleteSync(pendingFence);pendingFence=null;
+  if(resolution.observe(poll-gpuStarted,{active,continuous:gpuSampleValid}))resize();
  }
  gl.useProgram(program);
  for(const name of ['X','U','R','V','F']){gl.uniform2fv(locations[name+'t'],observer[name].slice(0,2));gl.uniform3fv(locations[name+'s'],observer[name].slice(2))}
@@ -290,7 +295,7 @@ function draw(){
   const bounds=shipBounds(s,observer,3/canvas.height,!s.own);bounds[3]=Number.isFinite(s.deathTime)?s.deathTime:-1;row(i,8,bounds);
  });
  gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,9,73,gl.RGBA,gl.FLOAT,fleetData);gl.drawArrays(gl.TRIANGLES,0,3);
- pendingFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();gpuStarted=performance.now();dirty=false;renderedFrames++;
+ pendingFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);gl.flush();gpuStarted=performance.now();gpuLastPoll=gpuStarted;gpuSampleValid=active;dirty=false;renderedFrames++;
 }
 // Immediate engine feedback is stylized, like the firing flash; the hull remains retarded.
 function drawEnginePlume(observer,ship){
@@ -406,10 +411,10 @@ function tick(now){
   while(history.length>1&&history[1].t<player.t-4)history.shift();
   if(held('KeyF'))fire();const impacts=advanceLasers(beams,player.t);if(impacts.length){kills+=impacts.length;lastImpact=impacts.at(-1);dirty=true}
  }
- if(active||dirty)draw();if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
+ if(active||dirty)draw(active);if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
 }
 // State read-back is useful for scientific inspection and automated validation.
-window.adsFlight={getState:()=>({launched,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:!!program&&!contextLost,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,aliveShips:fleet.length-kills,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
+window.adsFlight={getState:()=>({launched,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:!!program&&!contextLost,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,aliveShips:fleet.length-kills,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
 if(document.modelContext?.registerTool){
  const lifecycle=new AbortController();
  const specs=[

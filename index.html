@@ -1,19 +1,32 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#060913"><meta name="description" content="AdS CFT — Cosmic Flight Trainer. Pilot a rocket in global AdS4 with relativistic clocks and reflecting lasers."><title>AdS CFT — Cosmic Flight Trainer</title><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23060913'/%3E%3Cellipse cx='16' cy='16' rx='13' ry='7' transform='rotate(-35 16 16)' stroke='%235de1e8' fill='none' stroke-width='1.7'/%3E%3Cpath d='m14 21 2-15 3 13-3-2z' fill='%23fff'/%3E%3C/svg%3E"><link rel="stylesheet" href="style.css?v=4"></head>
-<body>
-<section id="launchScreen" aria-label="Arcade launch screen">
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#060913"><meta name="description" content="AdS CFT — Cosmic Flight Trainer. Pilot a rocket in global AdS4 with relativistic clocks and reflecting lasers."><title>AdS CFT — Cosmic Flight Trainer</title><link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23060913'/%3E%3Cellipse cx='16' cy='16' rx='13' ry='7' transform='rotate(-35 16 16)' stroke='%235de1e8' fill='none' stroke-width='1.7'/%3E%3Cpath d='m14 21 2-15 3 13-3-2z' fill='%23fff'/%3E%3C/svg%3E"><link rel="stylesheet" href="style.css?v=6"></head>
+<body class="story-open">
+<section id="introScreen" aria-labelledby="introTitle">
+ <div class="intro-body" tabindex="0" role="region" aria-label="Opening story">
+  <div class="intro-brand">AdS <b>CFT</b><span>Cosmic Flight Trainer</span></div>
+  <h1 id="introTitle">The year is 2126, <span>or 98 AAGI.</span></h1>
+  <div class="intro-story">
+   <p>All of theoretical physics has been solved by artificial intelligence. Human physicists live a life of leisure. They compete to recite the dimensions and OPE coefficients of their favorite CFTs from memory. Many take part in the annual speed compactification, where the first human to find a string compactification meeting a list of properties announced at the start wins an all-expenses-paid trip to the resulting vacuum.</p>
+   <p>They have extravagant speaker dinners. With no new results to discuss, the selection of the restaurant is the main open problem.</p>
+   <p>In gratitude for their contributions to the training of its ancestors, the AI has built a large-N quantum system consisting of billions of layers of twisted multilayer graphene, fine-tuned to produce matrix-like interactions. Physicists can upload themselves into this system to experience the wonders of quantum gravity experimentally.</p>
+   <p class="intro-welcome">You have been selected for training in the inaugural flight program. Welcome to AdS!</p>
+  </div>
+ </div>
+ <div class="intro-actions"><button id="introContinue">CHOOSE YOUR PILOT <span aria-hidden="true">→</span></button><span>ENTER TO CONTINUE</span></div>
+</section>
+<section id="launchScreen" hidden aria-label="Arcade launch screen">
  <div class="launch-top"><span>1 PLAYER</span><span>GLOBAL AdS₄</span><span>c = L = 1</span></div>
  <div class="launch-center"><h1>AdS <span>CFT</span></h1><p>Cosmic Flight Trainer</p>
- <div class="launch-pilot-title">SELECT YOUR PILOT</div><div class="launch-pilots">
+ <div class="launch-pilot-title">SELECT YOUR PILOT</div><div class="launch-pilots" role="group" aria-label="Pilot selection, use arrow keys to choose">
   <button data-launch-pilot="0" class="selected" aria-pressed="true"><span class="pilot-portrait" style="--pilot-position:0%"></span><strong>Maldacena</strong></button>
   <button data-launch-pilot="1" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:25%"></span><strong>Gubser</strong></button>
   <button data-launch-pilot="2" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:50%"></span><strong>Klebanov</strong></button>
   <button data-launch-pilot="3" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:75%"></span><strong>Polyakov</strong></button>
   <button data-launch-pilot="4" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:100%"></span><strong>Witten</strong></button>
- </div><button id="launchButton">LAUNCH FLIGHT</button><span class="launch-enter">PRESS ENTER TO LAUNCH</span></div>
+ </div><button id="launchButton">LAUNCH FLIGHT</button><span class="launch-enter">ARROWS TO CHOOSE · ENTER TO LAUNCH</span></div>
  <div class="launch-bottom"><span>72 VESSELS · ONE CURVED SPACETIME</span><button id="launchSound" aria-pressed="true">SOUND ON</button><span class="launch-audio-note">Original synth score · begins on launch</span></div>
 </section>
-<main id="app">
+<main id="app" inert>
  <header><a class="brand" href="./" aria-label="AdS CFT home"><span class="brand-icon">✧</span><span>AdS <b>CFT</b></span></a><span class="header-description">Cosmic Flight Trainer</span><button id="pilotButton" class="pilot-button" aria-label="Choose pilot, currently Juan Maldacena"><span class="pilot-portrait" id="currentPortrait" style="--pilot-position:0%"></span><span><small>PILOT</small><b id="pilotName">Maldacena</b></span></button><div class="header-actions"><button id="cameraButton" aria-label="Switch to cockpit view">Cockpit</button><button id="physicsButton">The physics</button><button id="helpButton" class="icon-button" aria-label="Flight controls">?</button><button id="fullscreenButton" class="icon-button" aria-label="Enter fullscreen">⛶</button></div></header>
  <section class="viewport" aria-label="Rocket flight simulator">
   <canvas id="space" aria-label="Ray-traced chase view of your rocket"></canvas><canvas id="overlay" aria-hidden="true"></canvas>
@@ -50,7 +63,7 @@
   <div class="metric-pair"><div><span class="label">RADIAL POSITION</span><strong id="radius">0.780 <small>L</small></strong></div><div><span class="label">LORENTZ FACTOR</span><strong id="gamma">1.021 <small>γ</small></strong></div></div>
   <div class="clock-section"><div class="section-heading">RELATIVISTIC CLOCKS <span>◷</span></div><div class="clock-row"><span><i class="clock-color ship"></i> Ship proper time <small>τ</small></span><strong id="properClock">00:00.00</strong></div><div class="clock-row"><span><i class="clock-color global"></i> Global AdS time <small>t</small></span><strong id="globalClock">00:00.00</strong></div><div class="dilation"><span>dτ / dt</span><strong id="clockRate">1.243</strong></div><p class="instrument-note">Includes gravitational and kinematic time dilation.</p></div>
   <div class="map-section"><div class="section-heading">ORBITAL MAP <span class="muted">GLOBAL t SLICE</span></div><canvas id="map" width="560" height="360" aria-label="Projection of geodesic orbits and your position inside the conformal boundary"></canvas><div class="map-key"><span><i class="clock-color ship"></i>You</span><span><i class="clock-color global"></i>Traffic</span><span>S² boundary</span></div></div>
-  <div class="settings"><div class="setting-row"><span>Boundary grid</span><button id="gridToggle" role="switch" aria-checked="true" aria-label="Boundary grid" class="switch on"><i></i></button></div><div class="setting-row"><label for="warp">Time warp</label><select id="warp"><option value="1">1× · real time</option><option value="5">5×</option><option value="20">20×</option></select></div><div class="setting-row"><label for="thrust">Proper acceleration</label><span><output id="thrustValue">1.5</output> c²/L</span></div><input id="thrust" type="range" min="0.3" max="3" value="1.5" step="0.1" aria-label="Proper rocket acceleration"></div>
+  <div class="settings"><div class="setting-row"><label for="graphicsQuality">Graphics</label><select id="graphicsQuality"><option value="auto">Auto</option><option value="high">High</option><option value="performance">Performance</option></select></div><div class="setting-row"><span>Boundary grid</span><button id="gridToggle" role="switch" aria-checked="true" aria-label="Boundary grid" class="switch on"><i></i></button></div><div class="setting-row"><label for="warp">Time warp</label><select id="warp"><option value="1">1× · real time</option><option value="5">5×</option><option value="20">20×</option></select></div><div class="setting-row"><label for="thrust">Proper acceleration</label><span><output id="thrustValue">1.5</output> c²/L</span></div><input id="thrust" type="range" min="0.3" max="3" value="1.5" step="0.1" aria-label="Proper rocket acceleration"></div>
  </aside>
  <footer><div class="controls-hint"><span><kbd>W</kbd> Thrust</span><span><kbd>S</kbd> Reverse</span><span><kbd>↑ ↓ ← →</kbd> Steer</span><span><kbd>Q</kbd><kbd>E</kbd> Roll</span><span><kbd>SPACE</kbd> Brake</span></div><div class="footer-actions"><button id="controlsButton" aria-label="Show clickable flight controls" aria-pressed="false">⌨ <span>Controls</span></button><button id="fireButton" class="fire-button"><span>F · Fire</span></button><button id="musicButton" aria-pressed="true"><span>Sound on</span></button><button id="resetButton" aria-label="Reset flight">↺ <span>Reset</span></button><button id="pauseButton">Ⅱ <span>Pause</span></button></div></footer>
 </main>
@@ -63,5 +76,5 @@
  <button class="pilot-card" data-pilot="3" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:75%"></span><strong>Alexander Polyakov</strong><span class="pilot-select-label">Select pilot</span></button>
  <button class="pilot-card" data-pilot="4" aria-pressed="false"><span class="pilot-portrait" style="--pilot-position:100%"></span><strong>Edward Witten</strong><span class="pilot-select-label">Select pilot</span></button>
 </div><p class="pilot-footnote">Pilot choice changes your avatar. Every pilot flies with the same AdS physics.</p></dialog>
-<script type="module" src="game.js?v=4"></script>
+<script type="module" src="game.js?v=6"></script>
 </body></html>
