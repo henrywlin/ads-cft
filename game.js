@@ -56,7 +56,7 @@ $('physicsButton').onclick=()=>openDialog('physicsDialog');$('helpButton').oncli
 $('pilotButton').onclick=()=>openDialog('pilotDialog');
 function selectPilot(index){
  if(!Number.isInteger(index)||index<0||index>=pilotNames.length)throw Error('Unknown pilot');pilot=index;dirty=true;
- $('pilotName').textContent=pilotNames[index].split(' ').at(-1);$('currentPortrait').style.setProperty('--pilot-position',`${index*25}%`);$('pilotButton').setAttribute('aria-label',`Choose pilot, currently ${pilotNames[index]}`);
+ $('pilotName').textContent=pilotNames[index].split(' ').at(-1);$('currentPortrait').dataset.avatar=String(index);$('currentPortrait').style.setProperty('--pilot-position',`${index*25}%`);$('pilotButton').setAttribute('aria-label',`Choose pilot, currently ${pilotNames[index]}`);
  document.querySelectorAll('[data-pilot]').forEach(b=>{const selected=Number(b.dataset.pilot)===index;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));b.querySelector('.pilot-select-label').textContent=selected?'Selected':'Select pilot'});
  document.querySelectorAll('[data-launch-pilot]').forEach(b=>{const selected=Number(b.dataset.launchPilot)===index;b.classList.toggle('selected',selected);b.setAttribute('aria-pressed',String(selected));b.tabIndex=selected?0:-1});
  if($('pilotDialog').open)$('pilotDialog').close();if(launched)notify(`Pilot selected · ${pilotNames[index]}`);

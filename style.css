@@ -109,3 +109,6 @@ body.story-open{overflow:hidden}
 .traffic-fire-key i{display:inline-block;width:12px;height:2px;background:#50ffa5;box-shadow:0 0 6px #35ff9a}
 header,footer{box-shadow:inset 0 1px #63e5e612}
 .primary-button,#cameraButton,.pilot-button,.fire-button,select,kbd{border-radius:2px}
+
+/* Maldacena's updated portrait follows the supplied green-sweater photograph. */
+[data-launch-pilot="0"] .pilot-portrait,[data-pilot="0"] .pilot-portrait,#currentPortrait[data-avatar="0"]{background-image:url('./maldacena-avatar.png?v=12');background-size:100% 100%;background-position:center}
