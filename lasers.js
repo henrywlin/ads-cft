@@ -15,7 +15,7 @@ export function createLaser(player,fleet,direction=player.F,source=null){
 function addHullCandidates(beam,fleet,source=null){
  for(const ship of fleet){
   if(Number.isFinite(ship.deathTime))continue;
-  for(const [radii,center] of hullParts(ship.kind))for(const eta of [1,-1]){
+  for(const [radii,center] of ship.parts??hullParts(ship.kind))for(const eta of [1,-1]){
    const o=ship.C.map((c,i)=>(eta*dot(beam.X,c)-center[i]*ship.size)/(radii[i]*ship.size));
    if(ship!==source&&eta===1&&o.reduce((sum,v)=>sum+v*v,0)<=1){
     beam.candidates.push({age:0,ship,event:beam.X.slice()});continue;
@@ -74,7 +74,7 @@ export function advanceLasers(beams,globalTime,playerSegment=null){
   let first=null;for(const beam of beams){const hit=nextImpact(beam,globalTime);if(hit&&(!first||hit.time<first.time))first=hit}
   for(const hit of ownHits)if(!hit.beam.impact&&(!first||hit.time<first.time))first=hit;
   if(!first)break;
-  first.ship.deathTime=first.time;first.ship.deathPoint=first.event;first.beam.impact={time:first.time,ship:first.ship.id,event:first.event};impacts.push(first);if(first.ship.isPlayer)break;
+  if(!first.ship.indestructible){first.ship.deathTime=first.time;first.ship.deathPoint=first.event}first.beam.impact={time:first.time,ship:first.ship.id,event:first.event};impacts.push(first);if(first.ship.isPlayer)break;
  }
  return impacts;
 }

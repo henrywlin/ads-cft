@@ -1,10 +1,10 @@
-import {bounceCount} from './lasers.js?v=15';
+import {bounceCount} from './lasers.js?v=26';
 import {dot,add,scale,retarded,telemetry} from './physics.js?v=15';
 
 export const missionCatalog=[
  {id:'free-flight',name:'Free Flight',description:'Explore AdS, practice flying and fire at will.'},
  {id:'trick-shot',name:'Trick Shot',description:'Destroy a traffic ship with your own laser after at least one boundary reflection.'},
- {id:'center-rest',name:'Rest at the Center',description:'Settle near the center: r < 0.06 L and speed < 0.03 c for 2 ship seconds.'}
+ {id:'center-rest',name:'Dock with Central Spaceship',description:'Rendezvous with Axiom at the center of AdS. Enter its open docking bay and hold below 0.03 c within 0.06 L of the center for 2 ship seconds.'}
 ];
 
 // Objectives use physical impact events, never the delayed image or wall clock.
@@ -13,7 +13,7 @@ export class FlightMission {
  select(id){if(!missionCatalog.some(m=>m.id===id))throw Error('Unknown mission');this.id=id;this.reset()}
  reset(){this.status=this.id==='free-flight'?'free':'active';this.reflectedHits=0;this.directHits=0;this.settled=0;this.previousTau=null;this.wasSettled=false;this.radius=Infinity;this.speed=Infinity;this.result=null}
  hit(hit){
-  if(this.id!=='trick-shot'||this.status!=='active'||hit.beam.owner!=='player'||hit.ship.isPlayer)return false;
+  if(this.id!=='trick-shot'||this.status!=='active'||hit.beam.owner!=='player'||hit.ship.isPlayer||hit.ship.indestructible)return false;
   const reflections=bounceCount(hit.beam,hit.time);
   if(reflections<1){this.directHits++;return false}
   this.reflectedHits++;

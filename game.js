@@ -1,18 +1,19 @@
 import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=21';
 import {ResolutionController} from './resolution.js?v=6';
 import {ArcadeScore} from './music.js?v=21';
-import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=15';
-import {TrafficFire,advanceTraffic} from './traffic.js?v=15';
+import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=26';
+import {TrafficFire,advanceTraffic} from './traffic.js?v=26';
 import {burnCommand} from './flight-controls.js?v=15';
 import {ChaseCamera,rocketPoint} from './chase.js?v=15';
-import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=15';
-import {compactRadius,mapCoordinates} from './map.js?v=15';
-import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=22';
+import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=26';
+import {compactRadius,mapCoordinates,mapVelocity} from './map.js?v=25';
+import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=26';
+import {centralShip,centralHull,centralHullShader,brakingAim} from './docking.js?v=26';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
 // Static launch/briefing frames must survive compositor clears in Safari.
 // Let the browser choose the GPU instead of forcing a graphics switch on launch.
 const gl=(()=>{try{return canvas.getContext('webgl2',{alpha:false,antialias:false,depth:false,stencil:false,preserveDrawingBuffer:true,powerPreference:'default'})}catch(error){console.warn('Graphics context creation failed',error);return null}})();
-const fleet=makeFleet(),L_SECONDS=30,keys=new Set(),trafficFire=new TrafficFire(fleet);
+const fleet=makeFleet(),L_SECONDS=30,keys=new Set(),trafficFire=new TrafficFire(fleet,190726,[centralShip]);
 const latestPlayerBeam=()=>{for(let i=beams.length-1;i>=0;i--)if(beams[i].owner!=='traffic')return beams[i];return null};
 const destroyedCount=()=>fleet.filter(s=>Number.isFinite(s.deathTime)).length;
 let player=initialPlayer(),paused=false,grid=true,warp=1,accel=1.5,last=performance.now(),width=1,height=1,frame=0,lastUi=0,fps=60,drag=null,noticeTimer;
@@ -21,8 +22,9 @@ let launched=false,dirty=true,pendingFence=null,musicWanted=true,effectTime=0,re
 const EXPLOSION_SECONDS=1.6,touchHolds=new Map();
 let chase=true,beams=[],lastShot=-Infinity,kills=0,shots=0,lastImpact=null;
 let selectedImageShip=null,imageFrame=null;
-const flightProgram=new MissionProgram();let missionTargetId=null,pendingMission=null;const announcedMissions=new Set();
+const flightProgram=new MissionProgram();let missionTargetId=null,pendingMission=null,missionAdvice=false;const announcedMissions=new Set();
 const trickMission=()=>flightProgram.missions[0];
+const dockingActive=()=>flightProgram.accepted.has('center-rest')&&flightProgram.missions[1].status==='active'&&!gameOver;
 function missionTarget(){if(!flightProgram.accepted.has('trick-shot')||trickMission().status!=='active')return null;let target=fleet.find(s=>s.id===missionTargetId&&!Number.isFinite(s.deathTime));if(!target){target=fleet.find(s=>!Number.isFinite(s.deathTime));missionTargetId=target?.id??null}return target}
 const gpuInfo=gl?.getExtension('WEBGL_debug_renderer_info'),softwareRenderer=gpuInfo&&/SwiftShader|llvmpipe|Software|softpipe/i.test(gl.getParameter(gpuInfo.UNMASKED_RENDERER_WEBGL));
 const resolution=new ResolutionController({software:!!softwareRenderer,coarse:matchMedia('(pointer: coarse)').matches});
@@ -45,7 +47,7 @@ function clearControls(){thrustForce=[0,0,0];chaseCamera.force=[0,0,0];drag=null
 function held(code){return keys.has(code)||[...touchHolds.values()].some(b=>b.dataset.key===code)}
 function setPause(value){paused=value;clearControls();$('pauseOverlay').hidden=!value;$('pauseButton').innerHTML=value?'▷ <span>Resume</span>':'Ⅱ <span>Pause</span>';$('touchPause').textContent=value?'RESUME':'PAUSE';$('touchPause').setAttribute('aria-pressed',String(value));last=performance.now()}
 function reset(){gameOver=false;deathAnimation=0;selectedImageShip=null;imageFrame=null;$('gameOverScreen').hidden=true;if($('missionOfferDialog').open)$('missionOfferDialog').close();flightProgram.reset();announcedMissions.clear();pendingMission=null;missionTargetId=null;setPause(false);player=initialPlayer();chaseCamera.reset();thrustForce=[0,0,0];trafficFire.reset();beams=[];kills=0;shots=0;lastShot=-Infinity;lastImpact=null;effectTime=0;fleet.forEach(s=>{delete s.deathTime;delete s.deathPoint;delete s.explosionStarted;delete s.visualRemoved});dirty=true;clearControls();updateUi();notify('Flight reset · ships and clocks restored')}
-function fire(){if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]')||player.tau-lastShot<.012)return false;lastShot=player.tau;const beam=createLaser(player,fleet);beam.flashTime=effectTime;beams.push(beam);shots++;score.laser();dirty=true;return true}
+function fire(){if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused||document.querySelector('dialog[open]')||player.tau-lastShot<.012)return false;lastShot=player.tau;const beam=createLaser(player,[...fleet,centralShip]);beam.flashTime=effectTime;beams.push(beam);shots++;score.laser();dirty=true;return true}
 $('fireButton').onclick=fire;
 $('retryButton').onclick=()=>{reset();canvas.focus({preventScroll:true})};
 function endFlight(){
@@ -103,17 +105,27 @@ function launch(){if(launched||!graphicsReady)return;launched=true;$('launchScre
 $('launchButton').onclick=launch;$('launchSound').onclick=()=>void setMusic(!musicWanted);$('musicButton').onclick=()=>void setMusic(!musicWanted);
 function openDialog(id){clearControls();$(id).showModal()}
 function offerMission(id){
- pendingMission=id;const m=missionCatalog.find(m=>m.id===id);
+ pendingMission=id;missionAdvice=false;const m=missionCatalog.find(m=>m.id===id);
  $('missionOfferTitle').textContent=m.name;$('missionOfferText').textContent=m.description;
- $('missionOfferTip').textContent=id==='trick-shot'
-  ?'Accept, then steer toward the gold BANK AIM marker. Center it in your sights and fire with F or FIRE. It aims a boundary bounce at the marked vessel. A direct hit will not count.'
-  :'Use both map views to find the center. Aim your nose toward it and use short forward bursts with W or THRUST. Release thrust, then hold Space or BRAKE as you approach. Make small corrections and stay slow near the center for two ship seconds.';
+ $('missionMentor').hidden=true;$('missionOfferTip').hidden=true;$('missionOfferEyebrow').textContent='MISSION AVAILABLE';
+ $('missionAccept').textContent='ACCEPT';$('missionDecline').hidden=false;$('missionOfferClose').setAttribute('aria-label','Decline mission');
  openDialog('missionOfferDialog');document.querySelector('.mission-message').scrollTop=0;$('missionAccept').focus({preventScroll:true});score.incoming();
 }
-$('missionAccept').onclick=()=>{if(pendingMission){flightProgram.accept(pendingMission,player);notify(`${missionCatalog.find(m=>m.id===pendingMission).name} accepted`)}$('missionOfferDialog').close();updateUi()};
+$('missionAccept').onclick=()=>{
+ if(missionAdvice){$('missionOfferDialog').close();return}
+ if(!pendingMission)return;
+ flightProgram.accept(pendingMission,player);missionAdvice=true;
+ $('missionMentor').hidden=false;$('missionOfferTip').hidden=false;$('missionOfferEyebrow').textContent='MISSION ACCEPTED';
+ $('missionOfferText').textContent=pendingMission==='trick-shot'?'A straight line is not always the shortest way to victory.':'Axiom waits at r = 0. Arrive gently; position alone is not enough.';
+ $('missionOfferTip').textContent=pendingMission==='trick-shot'
+  ?'Steer toward the gold BANK AIM marker. Center it in your sights, then fire with F or FIRE. Your laser must bounce off the boundary before hitting the marked vessel.'
+  :'Use M to open the map. Cyan shows your travel direction. The amber arrow shows where to point your NOSE and burn with W or THRUST to slow down; exhaust goes the other way. Space or BRAKE does this without turning. Approach Axiom with short bursts, brake early, and hold still in its open central bay for two ship seconds.';
+ $('missionAccept').textContent='READY';$('missionDecline').hidden=true;$('missionOfferClose').setAttribute('aria-label','Close Dirac’s advice');
+ document.querySelector('.mission-message').scrollTop=0;$('missionAccept').focus({preventScroll:true});dirty=true;updateUi();score.incoming();
+};
 $('missionDecline').onclick=()=>$('missionOfferDialog').close();
-$('missionOfferDialog').addEventListener('close',()=>{if($('missionOfferDialog').open)return;pendingMission=null;last=performance.now();canvas.focus({preventScroll:true})});
-function announceMissions(){for(const m of flightProgram.missions){if(m.status==='complete'&&!announcedMissions.has(m.id)){announcedMissions.add(m.id);notify(`${m.getState().name} complete`)}}}
+$('missionOfferDialog').addEventListener('close',()=>{if($('missionOfferDialog').open)return;pendingMission=null;missionAdvice=false;last=performance.now();canvas.focus({preventScroll:true})});
+function announceMissions(){for(const m of flightProgram.missions){if(m.status==='complete'&&!announcedMissions.has(m.id)){announcedMissions.add(m.id);notify(m.id==='center-rest'?'DOCKING COMPLETE · Welcome aboard Axiom':`${m.getState().name} complete`)}}}
 function openMap(){openDialog('mapDialog');drawExpandedMap()}
 $('expandMapButton').onclick=openMap;
 function toggleFlightMap(show=$('flightMap').hidden){
@@ -183,7 +195,7 @@ function reflectedImageAt(clientX,clientY){
 }
 function selectReflectedImage(id){
  selectedImageShip=null;
- const ship=fleet.find(s=>s.id===id);
+ const ship=[...fleet,centralShip].find(s=>s.id===id);
  if(!ship||Number.isFinite(ship.deathTime)||ship.visualRemoved){notify('That vessel’s direct image is no longer available');return}
  if(!faceDirectImage(player,ship))return;
  selectedImageShip=ship;dirty=true;notify(`${ship.id} · DIRECT IMAGE`);
@@ -196,7 +208,7 @@ document.querySelectorAll('[data-key]').forEach(b=>{
  for(const event of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(event,e=>{touchHolds.delete(e.pointerId);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')});
  b.addEventListener('click',e=>{if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused)return;if(e.detail===0){if(b.dataset.key==='KeyF')fire();else{const token=Symbol();touchHolds.set(token,b);b.classList.add('pressed');setTimeout(()=>{touchHolds.delete(token);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')},140)}}});
 });
-const fleetCapacity=fleet.length+1; // Includes the player hull in chase view.
+const fleetCapacity=fleet.length+2; // Includes Axiom and the player hull in chase view.
 let program,skyTexture,shipTexture,vertexArray,locations={},fleetData=new Float32Array(9*fleetCapacity*4);
 function initRenderer(){
  graphicsStatus('starting','Preparing the flight view…');
@@ -266,7 +278,7 @@ function initRenderer(){
    vec3 radii=vec3(.013,.014,.047)*size,center=vec3(0);
    float h=0.0,etaHit=1.0,bestDelay=nearest;int part=0;bool found=false;
    bool own=data(i,2).w>.5;
-   int pieces=kind==3?6:kind==1?4:2;
+   int pieces=kind==4?${centralHull.length}:kind==3?6:kind==1?4:2;
    for(int piece=0;piece<pieces;piece++){
     vec3 rr,cc;bool enabled=true;
     if(kind==0){
@@ -283,6 +295,8 @@ function initRenderer(){
      if(piece==0){rr=vec3(.041,.042,.106);cc=vec3(0);}
      else if(piece==1){rr=vec3(.053,.016,.044);cc=vec3(0,-.022,-.050);}
      else enabled=false;
+    }else if(kind==4){
+     ${centralHullShader}
     }else{
      // Saucer, engineering section, twin nacelles, cross-pylon and neck.
      if(piece==0){rr=vec3(.054,.007,.043);cc=vec3(0,.015,.032);}
@@ -311,7 +325,7 @@ function initRenderer(){
    nearest=bestDelay;
    vec3 q=etaHit*(pos.xyz+h*nc),local=q-center,normal=normalize(local/(radii*radii));
    float lighting=.22+.7*max(0.0,dot(normal,normalize(vec3(-.7,1.0,.3))));
-   vec3 base=kind==1?vec3(.82,.80,.72):kind==2?vec3(.37,.32,.25):kind==3?vec3(.67,.73,.79):mix(vec3(.31,.39,.47),vec3(.57,.62,.67),vel.w);
+   vec3 base=kind==4?vec3(.72,.80,.85):kind==1?vec3(.82,.80,.72):kind==2?vec3(.37,.32,.25):kind==3?vec3(.67,.73,.79):mix(vec3(.31,.39,.47),vec3(.57,.62,.67),vel.w);
    if(own)base=playerColor;
    vec3 hull=base*lighting;
    float edge=pow(1.0-abs(dot(normal,normalize(nc))),2.0);
@@ -326,6 +340,21 @@ function initRenderer(){
    }else if(kind==2){
     if(part==0&&local.z>radii.z*.85)hull=vec3(.015,.020,.026);
     if(part==0&&abs(local.y)<.002*size&&abs(local.z)<.085*size)hull=vec3(.42,.32,.10);
+   }else if(kind==4){
+    // Pearl-metal crowns, gold seams, luminous windows and violet drive petals.
+    float angle=atan(q.y,q.x),radial=length(q.xy);
+    float panels=step(.86,fract(angle*24.0/PI+q.z*110.0));
+    hull=mix(hull,vec3(.86,.54,.18)*(.6+lighting),panels*.75);
+    if(part<32){
+     float windows=step(.35,fract(angle*56.0/PI));
+     if(abs(local.z)<radii.z*.6&&windows>.5)hull=vec3(.15,.86,1.0)*1.6;
+     if(radial<(part<16?.144:.110))hull=vec3(.30,.95,1.0)*1.8;
+     if(local.z>radii.z*.83)hull+=vec3(.14,.20,.26);
+    }else if(part<40){hull+=vec3(.18,.48,.56)*.7;}
+    else{
+     if(local.z<-.115)hull=vec3(.52,.26,1.0)*2.0;
+     if(abs(local.x)<.009&&abs(local.y)<.009&&local.z>.11)hull=vec3(1.0,.74,.32)*1.8;
+    }
    }else{
     if((part==2||part==3)&&local.z>radii.z*.77)hull=vec3(1.0,.19,.10);
     if((part==2||part==3)&&abs(local.x)>radii.x*.65)hull=vec3(.15,.46,1.0);
@@ -407,7 +436,7 @@ function draw(active=false){
  if(!pollFrame(active))return;
  const observer=viewObserver();
  hctx.clearRect(0,0,width,height);hctx.font='7px "Arcade",monospace';let labeled=0;const reflectionLabels=[];
- const views=new Map(),traffic=fleet.filter(s=>{
+ const views=new Map(),traffic=[centralShip,...fleet].filter(s=>{
   if(s.visualRemoved)return false;
   const view=retarded(s,observer);views.set(s,view);
   if(Number.isFinite(s.deathTime)&&view&&observer.t-view.delay>=s.deathTime){
@@ -416,7 +445,7 @@ function draw(active=false){
   }
   return true;
  });
- renderedTraffic=traffic.length;
+ renderedTraffic=traffic.filter(s=>s!==centralShip).length;
  for(const s of traffic)for(const reflected of [false,true]){
   const view=reflected?retarded(s,observer,true):views.get(s);if(!view||view.dir[2]<=.03)continue;
   const x=width/2+view.dir[0]/view.dir[2]/1.4*height,y=height/2-view.dir[1]/view.dir[2]/1.4*height;
@@ -426,7 +455,7 @@ function draw(active=false){
    labeled++;const size=Math.max(7,Math.min(24,.065*s.size/Math.max(.07,view.distance)*height));
    hctx.strokeStyle='rgba(119,172,207,.38)';hctx.lineWidth=.7;
    for(const [a,b,c,e] of [[-1,-1,1,1],[1,-1,-1,1],[-1,1,1,-1],[1,1,-1,-1]]){hctx.beginPath();hctx.moveTo(x+a*size+c*5,y+b*size);hctx.lineTo(x+a*size,y+b*size);hctx.lineTo(x+a*size,y+b*size+e*5);hctx.stroke()}
-   const name=`${s.id}${reflected?' · REFLECTED':''}`,spectrum=`×${view.shift.toFixed(2)} ${view.shift<.975?'RED':view.shift>1.025?'BLUE':'NEUTRAL'} · ${(view.delay*L_SECONDS).toFixed(1)} s ago`;
+   const name=`${s.id}${s===centralShip?' · CENTRAL SHIP':''}${reflected?' · REFLECTED':''}`,spectrum=`×${view.shift.toFixed(2)} ${view.shift<.975?'RED':view.shift>1.025?'BLUE':'NEUTRAL'} · ${(view.delay*L_SECONDS).toFixed(1)} s ago`;
    const labelWidth=Math.max(hctx.measureText(name).width,hctx.measureText(spectrum).width),labelX=Math.max(12,Math.min(x+size+8,width-labelWidth-12));
    hctx.fillStyle='rgba(168,199,224,.68)';hctx.fillText(name,labelX,y-3);
    hctx.fillStyle='rgba(117,151,184,.62)';hctx.fillText(spectrum,labelX,y+11);
@@ -439,6 +468,7 @@ function draw(active=false){
  if(ownState)drawEnginePlume(observer,ownState);
  drawLaserPulses(observer);
  drawMissionAim();
+ drawDockingAim();
  drawSelectedImage(observer);
  if(gameOver&&deathAnimation<EXPLOSION_SECONDS)drawExplosion(width/2,height*.68,Math.min(.999,deathAnimation/EXPLOSION_SECONDS),{boundRadius:.065,size:.8}, {distance:.17});
  if(!gl||!program||contextLost)return;
@@ -472,15 +502,23 @@ function drawSelectedImage(observer){
 }
 function drawMissionAim(){
  const target=missionTarget(),aim=target&&reflectedAim(player,target);if(!aim)return;
- const d=[player.R,player.V,player.F].map(e=>dot(aim.direction,e)),front=d[2]>.02;
+ drawGuidanceCue(aim.direction,'BANK AIM',`${target.id} · ${Math.round((aim.arrival-player.t)*L_SECONDS)} s`,'#ffd287');
+}
+function drawDockingAim(){
+ if(!dockingActive())return;
+ const aim=brakingAim(player);if(!aim)return;
+ drawGuidanceCue(aim.direction,'BRAKE THIS WAY','POINT NOSE · W / THRUST','#ffb85c');
+}
+function drawGuidanceCue(direction,label,detail,color){
+ const d=[player.R,player.V,player.F].map(e=>dot(direction,e)),front=d[2]>.02;
  let x=front?width/2+d[0]/d[2]/1.4*height:width/2+Math.atan2(d[0],d[2])*height,
      y=front?height/2-d[1]/d[2]/1.4*height:height/2-Math.asin(Math.max(-1,Math.min(1,d[1])))*height;
  const minY=Math.min(124,height*.45),maxY=Math.max(minY+24,height-Math.min(145,height*.35));
  const onScreen=front&&x>=32&&x<=width-32&&y>=minY&&y<=maxY;
  x=Math.max(32,Math.min(width-32,x));y=Math.max(minY,Math.min(maxY,y));
- hctx.save();hctx.strokeStyle='#ffd287';hctx.fillStyle='#ffd287';hctx.lineWidth=1.5;
+ hctx.save();hctx.strokeStyle=color;hctx.fillStyle=color;hctx.lineWidth=1.5;
  hctx.beginPath();if(onScreen){hctx.arc(x,y,12,0,TAU);hctx.moveTo(x-18,y);hctx.lineTo(x-7,y);hctx.moveTo(x+7,y);hctx.lineTo(x+18,y)}else{const a=Math.atan2(y-height/2,x-width/2);hctx.moveTo(x+Math.cos(a)*10,y+Math.sin(a)*10);hctx.lineTo(x+Math.cos(a+2.4)*9,y+Math.sin(a+2.4)*9);hctx.lineTo(x+Math.cos(a-2.4)*9,y+Math.sin(a-2.4)*9);hctx.closePath()}hctx.stroke();
- hctx.font='7px "Arcade",monospace';hctx.textAlign=x>width*.6?'right':'left';const labelX=x>width*.6?x-19:x+19;hctx.fillText('BANK AIM',labelX,y-5);hctx.font='6px "Arcade",monospace';hctx.fillText(`${target.id} · ${Math.round((aim.arrival-player.t)*L_SECONDS)} s`,labelX,y+10);hctx.restore();
+ hctx.font='7px "Arcade",monospace';hctx.textAlign=x>width*.6?'right':'left';const labelX=x>width*.6?x-19:x+19;hctx.fillText(label,labelX,y-5);hctx.font='6px "Arcade",monospace';hctx.fillText(detail,labelX,y+10);hctx.restore();
 }
 // Engine feedback and the player hull share the same current comoving frame.
 function projectRocketPoint(observer,ship,local){
@@ -564,7 +602,7 @@ function updateUi(){
  const shiftType=lightShift>1.025?'blue':lightShift<.975?'red':'neutral';$('lightShift').dataset.shift=shiftType;$('lightShift').textContent=`${shiftType==='blue'?'BLUESHIFT':shiftType==='red'?'REDSHIFT':'SPECTRUM'} ×${lightShift.toFixed(2)}`;
  const t=telemetry(player);$('speed').textContent=t.beta.toFixed(3);$('speedMeter').style.width=(t.beta*100)+'%';$('radius').innerHTML=t.r.toFixed(3)+' <small>L</small>';$('gamma').innerHTML=t.gamma.toFixed(3)+' <small>γ</small>';$('rho').textContent=t.chi.toFixed(3);$('clockRate').textContent=t.clock.toFixed(3);$('properClock').textContent=formatClock(player.tau*L_SECONDS);$('globalClock').textContent=formatClock(player.t*L_SECONDS);$('fps').textContent=String(Math.round(fps));
  drawMap();if($('mapDialog').open)drawExpandedMap();if(!$('flightMap').hidden)drawFlightMap();
- const latest=latestPlayerBeam(),bounces=latest?bounceCount(latest,player.t):0,clickable=$('app').classList.contains('controls-visible');$('laserStatus').textContent=gameOver?'ROCKET DESTROYED':latest?.impact?'SHIP DESTROYED':bounces?`BOUNCES ${bounces}`:'LASER READY';$('laserStats').textContent=shots?`${shots} SHOTS · ${kills} HITS · ${clickable?'HOLD FIRE':'F TO FIRE'}`:clickable?'Hold FIRE to shoot':'F / click to fire';$('fleetLabel').textContent=`${fleet.length-destroyedCount()} VESSELS · ${destroyedCount()} DESTROYED`;
+ const latest=latestPlayerBeam(),bounces=latest?bounceCount(latest,player.t):0,clickable=$('app').classList.contains('controls-visible');$('laserStatus').textContent=gameOver?'ROCKET DESTROYED':latest?.impact?(latest.impact.ship===centralShip.id?'ABSORBED BY AXIOM':'SHIP DESTROYED'):bounces?`BOUNCES ${bounces}`:'LASER READY';$('laserStats').textContent=shots?`${shots} SHOTS · ${kills} HITS · ${clickable?'HOLD FIRE':'F TO FIRE'}`:clickable?'Hold FIRE to shoot':'F / click to fire';$('fleetLabel').textContent=`${fleet.length-destroyedCount()} VESSELS · ${destroyedCount()} DESTROYED`;
  const missions=flightProgram.getState().missions;$('missionReadout').hidden=!missions.length;
  $('missionProgress').textContent=missions.map(m=>`${m.name.toUpperCase()} · ${m.status==='complete'?'COMPLETE':m.status==='failed'?'FAILED':m.id==='trick-shot'?`${m.reflectedHits}/1 BOUNCE HIT`:`r ${m.radius.toFixed(2)} L · ${m.speed.toFixed(2)} c · ${Math.min(2,m.settled).toFixed(1)}/2 s`}`).join(' | ');
 }
@@ -583,6 +621,7 @@ function drawFlightMap(){
 function drawMap(c=mctx,translucent=false){
  c.clearRect(0,0,560,360);
  if(translucent){c.fillStyle='#06132399';c.fillRect(0,0,560,360)}
+ const velocity=mapVelocity(player.X,player.U),speed=norm3(velocity),braking=dockingActive()&&brakingAim(player);
  for(const [cx,axes,title] of [[140,[0,2],'X / Z'],[420,[1,2],'Y / Z']]){
   const radius=118,cy=173,point=X=>{const q=mapCoordinates(X,axes).point;return [cx+q[0]*radius,cy-q[1]*radius]};
   c.lineWidth=1;c.setLineDash([]);c.font=`${translucent?13:9}px "Arcade",monospace`;c.textAlign='center';c.fillStyle='#a7c9df';c.fillText(title,cx,25);
@@ -596,10 +635,27 @@ function drawMap(c=mctx,translucent=false){
    for(let j=0;j<=60;j++){const s=start+(age-start)*j/60,q=beam.Q.map((v,i)=>v*Math.cos(s)+beam.D[i]*Math.sin(s)),x=cx+q[axes[0]+1]/(1+Math.abs(q[0]))*radius,y=cy-q[axes[1]+1]/(1+Math.abs(q[0]))*radius;if(j)c.lineTo(x,y);else c.moveTo(x,y)}
    c.strokeStyle=beam.owner==='traffic'?'#50ffa599':'#ff667499';c.lineWidth=1.5;c.stroke();c.lineWidth=1;
   }
-  if(flightProgram.accepted.has('center-rest')){c.strokeStyle='#a8bfff';c.beginPath();c.arc(cx,cy,Math.max(4,compactRadius(.06)*radius),0,TAU);c.stroke()}
-  const [x,y]=point(player.X);c.beginPath();c.arc(x,y,9,0,TAU);c.strokeStyle='#63e5e660';c.stroke();c.beginPath();c.arc(x,y,4,0,TAU);c.fillStyle='#63e5e6';c.fill();
+  c.save();c.strokeStyle='#d9e6ff';c.lineWidth=1.5;c.beginPath();c.arc(cx,cy,6,0,TAU);c.arc(cx,cy,3,0,TAU);c.moveTo(cx-10,cy);c.lineTo(cx-6,cy);c.moveTo(cx+6,cy);c.lineTo(cx+10,cy);c.stroke();
+  c.fillStyle='#d9e6ff';c.font='7px "Arcade",monospace';c.textAlign='center';c.fillText('AXIOM',cx,cy+19);c.restore();
+  if(dockingActive()){c.strokeStyle='#ffb85c';c.setLineDash([2,3]);c.beginPath();c.arc(cx,cy,11,0,TAU);c.stroke();c.setLineDash([])}
+  const [x,y]=point(player.X);
+  if(speed>1e-5){
+   // Project one short 3D arrow into both views, shortening it when travel is out of plane.
+   const dx=24*velocity[axes[0]]/speed,dy=-24*velocity[axes[1]]/speed;
+   drawMapArrow(c,x,y,dx,dy,'#bdffff');
+   if(braking)drawMapArrow(c,x,y,-dx*1.25,-dy*1.25,'#ffb85c');
+  }
+  c.beginPath();c.arc(x,y,9,0,TAU);c.strokeStyle='#63e5e660';c.stroke();c.beginPath();c.arc(x,y,4,0,TAU);c.fillStyle='#63e5e6';c.fill();
  }
- c.textAlign='center';c.font=`${translucent?14:10}px "Arcade",monospace`;c.fillStyle='#bdffff';c.fillText(`YOUR RADIUS: ${telemetry(player).r.toFixed(3)} L`,280,322);c.font=`${translucent?10:8}px "Arcade",monospace`;c.fillStyle='#829ab0';c.fillText('CURRENT POSITIONS · EACH VIEW DROPS ONE AXIS',280,346);c.textAlign='left';
+ c.textAlign='center';c.font=`${translucent?14:10}px "Arcade",monospace`;c.fillStyle='#bdffff';c.fillText(`YOUR RADIUS: ${telemetry(player).r.toFixed(3)} L`,280,322);c.textAlign='left';
+ if(dockingActive()){c.font=`${translucent?10:8}px "Arcade",monospace`;c.textAlign='right';c.fillStyle='#bdffff';c.fillText('CYAN: TRAVEL',265,347);c.textAlign='left';c.fillStyle='#ffb85c';c.fillText('AMBER: BRAKE',295,347)}
+}
+function drawMapArrow(c,x,y,dx,dy,color){
+ const length=Math.hypot(dx,dy);if(length<=6)return;
+ const ux=dx/length,uy=dy/length,head=Math.min(5,length/3);
+ c.save();c.lineJoin='round';c.lineCap='round';c.beginPath();c.moveTo(x+ux*5,y+uy*5);c.lineTo(x+dx,y+dy);
+ c.moveTo(x+dx-head*(ux+uy*.65),y+dy-head*(uy-ux*.65));c.lineTo(x+dx,y+dy);c.lineTo(x+dx-head*(ux-uy*.65),y+dy-head*(uy+ux*.65));
+ c.strokeStyle='#061323';c.lineWidth=4;c.stroke();c.strokeStyle=color;c.lineWidth=2;c.stroke();c.restore();
 }
 function tick(now){
  const rawElapsed=Math.max(0,(now-last)/1000),elapsed=Math.min(.06,rawElapsed);last=now;fps=fps*.96+.04/Math.max(.001,rawElapsed);
@@ -619,7 +675,7 @@ function tick(now){
    const beforeTau=player.tau;
    advance(player,h/n,thrust,command.brake,(segment,endTime)=>{
     const impacts=advanceTraffic(trafficFire,beams,endTime,segment);
-    for(const hit of impacts){if(hit.ship.isPlayer){endFlight();return {stopAt:hit.time}}if(hit.beam.owner!=='traffic')kills++;flightProgram.hit(hit);if(flightProgram.accepted.has('trick-shot')&&trickMission().status==='active'&&hit.beam.owner==='player')notify('Direct hit · Trick Shot needs a boundary bounce');lastImpact=hit;dirty=true}
+    for(const hit of impacts){if(hit.ship.isPlayer){endFlight();return {stopAt:hit.time}}if(hit.ship.indestructible){dirty=true;continue}if(hit.beam.owner!=='traffic')kills++;flightProgram.hit(hit);if(flightProgram.accepted.has('trick-shot')&&trickMission().status==='active'&&hit.beam.owner==='player')notify('Direct hit · Trick Shot needs a boundary bounce');lastImpact=hit;dirty=true}
    });
    chaseCamera.advance(player.tau-beforeTau,command.force);
    if(gameOver){$('gameOverStats').textContent=`${formatClock(player.tau*L_SECONDS)} PROPER TIME · ${kills} SHIPS DESTROYED`;break}

@@ -9,7 +9,7 @@ export function pickShipImage(observer,ships,x,y,width,height){
  let nearest=null;
  for(const ship of ships){
   const origin=ship.C.map(e=>dot(observer.X,e)),direction=ship.C.map(e=>dot(K,e));
-  for(const [radii,center] of hullParts(ship.kind))for(const eta of ship.own?[1]:[1,-1]){
+  for(const [radii,center] of ship.parts??hullParts(ship.kind))for(const eta of ship.own?[1]:[1,-1]){
    const o=origin.map((v,i)=>(eta*v-center[i]*ship.size)/(radii[i]*ship.size));
    const d=direction.map((v,i)=>eta*v/(radii[i]*ship.size)),length=Math.hypot(...d);
    if(!Number.isFinite(length)||length===0)continue;
