@@ -16,7 +16,7 @@ const fine=burn(3200),coarse=burn(100),medium=burn(200),err=q=>Math.hypot(...q.X
 const low=initialPlayer(),high=initialPlayer();advance(low,.004,0,.3);advance(high,.004,0,3);assert.ok(telemetry(high).beta<telemetry(low).beta);
 const fleet=makeFleet();
 assert.equal(fleet.length,48);assert.equal(new Set(fleet.map(s=>s.id)).size,48);assert.equal(new Set(fleet.map(s=>s.honoree)).size,48);
-assert.ok(fleet.every(s=>s.id.startsWith('CSV ')&&s.honoree));assert.deepEqual(makeFleet().map(s=>s.id),fleet.map(s=>s.id));
+assert.ok(fleet.every(s=>/^(USS|STARSHIP) /.test(s.id)&&s.honoree));assert.deepEqual(makeFleet().map(s=>s.id),fleet.map(s=>s.id));
 for(const ship of fleet){
  const e=ship.A[0]*ship.B[1]-ship.A[1]*ship.B[0];let jsq=0;
  for(let i=2;i<5;i++)for(let j=i+1;j<5;j++)jsq+=(ship.A[i]*ship.B[j]-ship.A[j]*ship.B[i])**2;assert.ok(jsq>1e-8);

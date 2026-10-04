@@ -34,6 +34,15 @@ export class ArcadeScore{
   this.engineFilter.frequency.setTargetAtTime(350+level*1550,now,.08);
   this.engineTone.frequency.setTargetAtTime((mode==='reverse'?40:mode==='brake'?58:48)+level*48,now,.08);
  }
+ incoming(){
+  if(!this.playing)return;const c=this.context,t=c.currentTime;
+  // A short rising two-tone radio chime, shared with the other muted effects.
+  for(const [offset,frequency] of [[0,880],[.14,1320]]){
+   const o=c.createOscillator(),g=c.createGain(),start=t+offset;o.type='sine';o.frequency.value=frequency;
+   g.gain.setValueAtTime(0,start);g.gain.linearRampToValueAtTime(.18,start+.008);g.gain.exponentialRampToValueAtTime(.0001,start+.18);
+   o.connect(g);g.connect(this.effects);o.onended=()=>{o.disconnect();g.disconnect()};o.start(start);o.stop(start+.2);
+  }
+ }
  laser(){
   if(!this.playing)return;const c=this.context,t=c.currentTime,o=c.createOscillator(),g=c.createGain(),f=c.createBiquadFilter();
   o.type='sawtooth';o.frequency.setValueAtTime(1500,t);o.frequency.exponentialRampToValueAtTime(95,t+.25);
