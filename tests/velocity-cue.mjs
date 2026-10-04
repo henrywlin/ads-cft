@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {eventAt,movingFrame,initialPlayer,rotate,telemetry} from '../dist/physics.js';
 import {velocityDirection,velocityCue} from '../dist/velocity-cue.js';
+import {ChaseCamera} from '../dist/chase.js';
 const close=(a,b)=>assert.ok(Math.abs(a-b)<1e-8,`${a} != ${b}`);
 for(const radius of [0,1,10])for(const velocity of [[0,0,0],[.8,0,0],[0,.6,0],[0,0,.7],[0,0,-.5],[.2,-.3,.4]]){
  const X=eventAt([0,0,radius],.7),m=movingFrame(X,velocity),p={X,U:m.U,R:m.E[0],V:m.E[1],F:m.E[2]};
@@ -16,7 +17,13 @@ for(const radius of [0,1,10])for(const velocity of [[0,0,0],[.8,0,0],[0,.6,0],[0
  }
 }
 const p=initialPlayer();close(velocityDirection(p).direction[0],1);
+const camera=new ChaseCamera();
+let attached=velocityCue(p,1000,600,camera.observer(p));
+assert.equal(attached.attached,true);assert.ok(attached.x>attached.tailX);
+assert.ok(attached.x>350&&attached.x<650,'Initial velocity remains next to the rocket');
 rotate(p,Math.PI/2,0,0);close(velocityDirection(p).direction[2],1);
+attached=velocityCue(p,1000,600,camera.observer(p));assert.ok(attached.y<attached.tailY,'Forward motion projects toward the nose');
 let cue=velocityCue(p,1000,600);close(cue.x,500);close(cue.y,300);assert.equal(cue.aft,false);
 rotate(p,Math.PI,0,0);cue=velocityCue(p,1000,600);close(cue.x,500);assert.ok(cue.y>300);assert.equal(cue.aft,true);
+attached=velocityCue(p,1000,600,camera.observer(p));assert.ok(attached.y>attached.tailY,'Aft motion projects toward the tail');
 console.log('Velocity cue: static-frame speeds, relativistic body directions, attitude-only turns, rest and screen edges pass.');
