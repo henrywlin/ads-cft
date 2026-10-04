@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import {dot,add,scale,initialPlayer,makeFleet,retarded,advance,rotate,TAU} from '../dist/physics.js';
+import {dot,add,scale,initialPlayer,makeFleet,retarded,advance,rotate,TAU,eventAt,movingFrame} from '../dist/physics.js';
 import {createLaser,bounceCount,advanceLasers} from '../dist/lasers.js';
-import {FlightMission,reflectedAim} from '../dist/missions.js';
+import {FlightMission,MissionProgram,reflectedAim} from '../dist/missions.js';
 
 function reflectedImpact(owner='player'){
  const player=initialPlayer(),target=makeFleet(72)[0];target.id='TRICK TARGET';
@@ -79,29 +79,17 @@ const dead=makeFleet(72)[0];dead.deathTime=1;assert.equal(reflectedAim(initialPl
 const noImage={A:[0,0,1,0,0],B:[0,0,0,1,0]};assert.equal(reflectedAim(initialPlayer(),noImage),null);
 console.log('PASS: reflected guidance remains normalized and hits moving targets after burns, rotations, and successive global-time circuits.');
 
-// Clock Race compares simulated elapsed clocks in the displayed L/c=30 s
-// scale. A burn must reach the goal through actual integrated states.
-const clockRace=new FlightMission();clockRace.select('clock-race');
-assert.equal(clockRace.getState().clockGoal,15);assert.equal(clockRace.getState().clockLead,0);
-for(const hit of [direct,enemy,self,reflected])clockRace.hit(hit);
-assert.equal(clockRace.getState().status,'active');assert.equal(clockRace.getState().directHits,0);assert.equal(clockRace.getState().reflectedHits,0,'Laser hits cannot advance Clock Race');
-const coast=initialPlayer();let maxCoastLead=-Infinity;
-for(let i=0;i<Math.ceil(TAU/.004);i++){
- advance(coast,.004);clockRace.sample(coast);maxCoastLead=Math.max(maxCoastLead,(coast.t-coast.tau)*30);
- close(clockRace.getState().clockLead,(coast.t-coast.tau)*30);assert.equal(clockRace.getState().status,'active','The initial coast orbit does not reach the 15-second goal');
-}
-assert.ok(maxCoastLead<15);
-clockRace.reset();assert.equal(clockRace.getState().id,'clock-race');assert.equal(clockRace.getState().clockLead,0);assert.equal(clockRace.getState().result,null);
-const racing=initialPlayer();let previousLead=0,steps=0;
-for(;steps<2000&&clockRace.getState().status==='active';steps++){
- previousLead=clockRace.getState().clockLead;advance(racing,.004,1.5);clockRace.sample(racing);
- close(clockRace.getState().clockLead,(racing.t-racing.tau)*30);
-}
-assert.ok(steps<2000,'A sustained inward burn should win Clock Race');assert.ok(previousLead<15);assert.equal(clockRace.getState().status,'complete');
-assert.deepEqual(clockRace.getState().result,{globalTime:racing.t,properTime:racing.tau,clockLead:(racing.t-racing.tau)*30});
-assert.ok(clockRace.getState().result.clockLead>=15);
-clockRace.fail();assert.equal(clockRace.getState().status,'failed');clockRace.sample(racing);assert.equal(clockRace.getState().status,'failed','Sampling cannot revive a fatal run');
-clockRace.reset();assert.equal(clockRace.getState().status,'active');assert.equal(clockRace.getState().clockLead,0);assert.equal(clockRace.getState().result,null);
-clockRace.select('trick-shot');clockRace.sample(racing);assert.equal(clockRace.getState().status,'active');assert.equal(clockRace.getState().reflectedHits,0,'The Clock Race threshold cannot win Trick Shot');
-clockRace.select('free-flight');clockRace.sample(racing);assert.equal(clockRace.getState().status,'free');assert.equal(clockRace.getState().result,null);
-console.log('PASS: Clock Race uses actual displayed clock differences, survives an initial coasting orbit, completes under relativistic thrust, and resets without mission bleed.');
+// Center rest requires low total speed AND the full three-dimensional radius.
+const rest=new FlightMission();rest.select('center-rest');
+const state=(x,v,tau)=>{const X=eventAt(x),frame=movingFrame(X,v);return {X,U:frame.U,tau,t:tau}};
+for(const p of [state([0,.5,0],[0,0,0],0),state([0,0,0],[0,.2,0],1)]){rest.sample(p);assert.equal(rest.status,'active');assert.equal(rest.settled,0)}
+rest.sample(state([.01,.01,.01],[0,0,0],2));
+rest.sample(state([.01,.01,.01],[0,0,0],2+1/30));assert.ok(rest.settled<2);
+rest.sample(state([0,0,0],[0,.2,0],2+1.5/30));assert.equal(rest.settled,0,'A fast pass resets the hold');
+rest.sample(state([.01,.01,.01],[0,0,0],3));rest.sample(state([.01,.01,.01],[0,0,0],3+2.01/30));assert.equal(rest.status,'complete');
+const program=new MissionProgram();assert.equal(program.advance(14.99),null);assert.equal(program.advance(.01),'trick-shot');
+assert.equal(program.advance(0),null,'Declined offers are not repeated');program.accept('trick-shot',initialPlayer());
+assert.equal(program.advance(29.99),null);assert.equal(program.advance(.02),'center-rest');program.accept('center-rest',initialPlayer());
+assert.equal(program.getState().missions.length,2,'Accepting the second mission preserves the first');program.hit(reflected);assert.equal(program.missions[0].status,'complete');program.fail(new Set(['trick-shot']));assert.equal(program.missions[0].status,'complete');assert.equal(program.missions[1].status,'failed');
+program.reset();assert.equal(program.playSeconds,0);assert.deepEqual(program.getState().missions,[]);assert.equal(program.advance(45),'trick-shot');assert.equal(program.advance(0),'center-rest');
+console.log('PASS: timed offers, independent concurrent objectives, full-radius/speed/hold requirement, and earned success preserved on later death.');

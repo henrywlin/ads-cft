@@ -91,16 +91,25 @@ export function geodesicAt(ship,t){
   if(X[0]*ct+X[1]*st<0){s+=Math.PI;X=scale(X,-1)}
   return {X,U:add(ship.B,ship.A,Math.cos(s),-Math.sin(s)),s};
 }
-export function retarded(ship,p){
+export function retarded(ship,p,reflected=false){
   const a=dot(p.X,ship.A),b=dot(p.X,ship.B),r=Math.hypot(a,b);
   if(r<1-1e-10)return null;
-  const theta=Math.atan2(b,a),d=Math.acos(Math.max(-1,Math.min(1,-1/r)));
+  const eta=reflected?-1:1,theta=Math.atan2(b,a),d=Math.acos(Math.max(-1,Math.min(1,-eta/r))),images=[];
   for(const s of [theta+d,theta-d]){
-    const X=add(ship.A,ship.B,Math.cos(s),Math.sin(s)),U=add(ship.B,ship.A,Math.cos(s),-Math.sin(s)),K=add(p.X,X,1,-1),freq=-dot(K,p.U);
+    const X=add(ship.A,ship.B,Math.cos(s),Math.sin(s)),U=add(ship.B,ship.A,Math.cos(s),-Math.sin(s));
+    // Y = eta (O + mu K), with K past-directed and K.U_observer = 1.
+    // The reflected segment starts at mu = -infinity after the first boundary.
+    // Therefore mu is allowed to be negative on reflected rays.
+    const raw=add(X,p.X,eta,-1),mu=dot(raw,p.U);
+    if(Math.abs(mu)<1e-10||(!reflected&&mu<0))continue;
+    const K=scale(raw,1/mu),emitted=eta*dot(K,U);
     const delay=((Math.atan2(p.X[1],p.X[0])-Math.atan2(X[1],X[0]))%TAU+TAU)%TAU;
-    if(freq>1e-10&&delay<Math.PI+1e-8){return {X,U,delay,dir:[-dot(K,p.R)/freq,-dot(K,p.V)/freq,-dot(K,p.F)/freq],shift:freq/(-dot(K,U)),distance:Math.hypot(dot(p.X,ship.C[0]),dot(p.X,ship.C[1]),dot(p.X,ship.C[2]))}}
+    if(emitted>1e-10&&delay<(reflected?TAU:Math.PI)+1e-8){
+      const gravity=Math.hypot(X[0],X[1])/Math.hypot(p.X[0],p.X[1]),shift=1/emitted;
+      images.push({X,U,delay,reflected,gravity,doppler:shift/gravity,dir:[dot(K,p.R),dot(K,p.V),dot(K,p.F)],shift,distance:Math.hypot(...ship.C.map(c=>dot(p.X,c)))});
+    }
   }
-  return null;
+  return images.sort((a,b)=>a.delay-b.delay)[0]??null;
 }
 // Exact aberrated silhouette of a sphere enclosing the ship's complete worldtube.
 export function shipBounds(ship,p,pixelPadding=.003,reflected=false){

@@ -1,5 +1,5 @@
-import {seeded,geodesicAt,add} from './physics.js?v=10';
-import {createLaser,advanceLasers} from './lasers.js?v=11';
+import {seeded,geodesicAt,add} from './physics.js?v=15';
+import {createLaser,advanceLasers} from './lasers.js?v=15';
 // Emission times use the global clock. These are independent of frame rate and time warp.
 export class TrafficFire {
  constructor(fleet,seed=190726){this.fleet=fleet;this.seed=seed;this.reset()}
