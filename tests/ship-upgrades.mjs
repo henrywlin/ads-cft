@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import {initialPlayer,eventAt,movingFrame,scale,advance} from '../dist/physics.js';
-import {awardUpgrade,playerHull,engineNozzles,laserMuzzle} from '../dist/ship-upgrades.js';
+import {awardUpgrade,playerHull,engineNozzles,laserMuzzle,interceptorHull,cannonHull} from '../dist/ship-upgrades.js';
 import {createLaser,advanceLasers} from '../dist/lasers.js';
 const staticPlayer=()=>{const X=eventAt([0,0,0]),f=movingFrame(X,[0,0,0]);return {X,U:f.U,R:f.E[0],V:f.E[1],F:f.E[2],t:0,tau:0}};
 for(const order of [['center-rest','trick-shot'],['trick-shot','center-rest']]){
  const p=initialPlayer(),before={X:p.X.slice(),U:p.U.slice(),t:p.t,tau:p.tau};
  for(const id of order){assert.ok(awardUpgrade(p,id));assert.equal(awardUpgrade(p,id),null,'Rewards apply once');}
  assert.deepEqual(p.upgrades,{frame:true,cannon:true});assert.deepEqual({X:p.X,U:p.U,t:p.t,tau:p.tau},before,'Upgrading preserves position, velocity and clocks');
- assert.equal(playerHull(p).parts.length,12);assert.equal(engineNozzles(p,'forward',[0,0,-1]).length,2);
+ assert.equal(playerHull(p).parts.length,interceptorHull.length+cannonHull.length);assert.equal(engineNozzles(p,'forward',[0,0,-1]).length,2);
  assert.ok(laserMuzzle(p)[1]>0,'The firing flash sits on the dorsal cannon');
 }
 function outfit(ids){const p=staticPlayer();ids.forEach(id=>awardUpgrade(p,id));return p}

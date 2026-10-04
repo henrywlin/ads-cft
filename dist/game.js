@@ -1,15 +1,15 @@
 import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=21';
 import {ResolutionController} from './resolution.js?v=6';
 import {ArcadeScore} from './music.js?v=21';
-import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=27';
-import {TrafficFire,advanceTraffic} from './traffic.js?v=27';
+import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=29';
+import {TrafficFire,advanceTraffic} from './traffic.js?v=29';
 import {burnCommand} from './flight-controls.js?v=15';
 import {ChaseCamera,rocketPoint} from './chase.js?v=15';
-import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=27';
+import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=29';
 import {compactRadius,mapCoordinates,mapVelocity} from './map.js?v=25';
 import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=26';
 import {centralShip,centralHull,centralHullShader,brakingAim} from './docking.js?v=26';
-import {awardUpgrade,playerHull,interceptorHull,interceptorShader,cannonHull,cannonShader,laserMuzzle,engineNozzles} from './ship-upgrades.js?v=27';
+import {awardUpgrade,playerHull,interceptorHull,interceptorShader,cannonHull,cannonShader,laserMuzzle,engineNozzles} from './ship-upgrades.js?v=29';
 import {velocityCue} from './velocity-cue.js?v=28';
 const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$('map');
 // Static launch/briefing frames must survive compositor clears in Safari.
@@ -395,9 +395,36 @@ function initRenderer(){
    }
    if(cannon&&part>=(kind==5?${interceptorHull.length}:2)){
     int gunPart=part-(kind==5?${interceptorHull.length}:2);
-    hull=vec3(.72,.52,.29)*lighting+vec3(.10,.16,.22)*edge;
-    if(gunPart==1)hull=vec3(.42,.49,.56)*lighting;
-    if(gunPart==2&&local.z>radii.z*.3)hull=vec3(1.0,.17,.42)*(1.1+2.0*playerFiring);
+    // Heavy gunmetal armor, silver heat bands and hot accelerator rails.
+    vec3 hot=vec3(1.0,.08,.32)*(1.35+2.8*playerFiring);
+    hull=vec3(.19,.24,.31)*lighting+vec3(.14,.23,.30)*edge;
+    if(gunPart==0)hull=mix(vec3(.22,.28,.34),playerColor,.25)*lighting;
+    if(gunPart==1){
+     hull=vec3(.45,.52,.60)*lighting;
+     if(abs(local.x)>radii.x*.62&&local.z<radii.z*.3)hull=vec3(1.0,.60,.16)*(.6+lighting);
+    }
+    if(gunPart==2){
+     float bands=step(.72,fract(q.z/size*190.0));
+     hull=mix(vec3(.16,.20,.25),vec3(.65,.72,.79),bands)*lighting;
+    }
+    if(gunPart==3){
+     hull=vec3(.62,.69,.77)*lighting+vec3(.16,.23,.28)*edge;
+     if(local.z>radii.z*.45){
+      float bore=length(local.xy/radii.xy);
+      hull=bore<.36?vec3(1.0,.80,.85)*(1.6+3.0*playerFiring):hot;
+     }
+    }
+    if(gunPart==4||gunPart==5){
+     hull=vec3(.42,.49,.57)*lighting;
+     if(local.y>radii.y*.22)hull=hot;
+    }
+    if(gunPart==6||gunPart==7){
+     float vents=step(.5,fract(q.z/size*180.0));
+     hull=mix(vec3(.09,.13,.18),vec3(.50,.59,.67),vents)*lighting;
+     if(local.y>radii.y*.75)hull=hot*.6;
+    }
+    if(gunPart==8)hull=hot*(.7+.3*edge);
+    if(gunPart==9)hull=vec3(1.0,.65,.18)*1.5;
    }
    vec4 ab=data(i,5),rv=data(i,6),f=data(i,7);
    float na=-ab.z+d.x*rv.x+d.y*rv.z+d.z*f.x,nb=-ab.w+d.x*rv.y+d.y*rv.w+d.z*f.y;
@@ -643,8 +670,9 @@ function drawLaserPulses(observer){
  }
  const flash=latestPlayerBeam();if(flash&&effectTime-flash.flashTime<.24){
   const [mx,my]=projectRocketPoint(observer,player,laserMuzzle(player))??[width/2,height/2];
-  const strength=1-(effectTime-flash.flashTime)/.24;hctx.save();hctx.translate(mx-width/2,my-height/2);hctx.globalAlpha=strength;hctx.globalCompositeOperation='lighter';hctx.strokeStyle='#ff6179';hctx.lineWidth=6;hctx.shadowBlur=25;hctx.shadowColor='#ff2049';
-  hctx.beginPath();hctx.moveTo(width/2-26,height/2);hctx.lineTo(width/2+26,height/2);hctx.moveTo(width/2,height/2-26);hctx.lineTo(width/2,height/2+26);hctx.stroke();hctx.strokeStyle='#fff3e9';hctx.lineWidth=2;hctx.stroke();hctx.restore();
+  const strength=1-(effectTime-flash.flashTime)/.24,flare=player.upgrades?.cannon?42:26;hctx.save();hctx.translate(mx-width/2,my-height/2);hctx.globalAlpha=strength;hctx.globalCompositeOperation='lighter';hctx.strokeStyle='#ff6179';hctx.lineWidth=6;hctx.shadowBlur=25;hctx.shadowColor='#ff2049';
+  if(player.upgrades?.cannon){const glow=hctx.createRadialGradient(width/2,height/2,2,width/2,height/2,flare);glow.addColorStop(0,'#fff2f9');glow.addColorStop(.2,'#ff668dcc');glow.addColorStop(1,'#ff205000');hctx.fillStyle=glow;hctx.fillRect(width/2-flare,height/2-flare,flare*2,flare*2);hctx.beginPath();hctx.arc(width/2,height/2,8+24*(1-strength),0,TAU);hctx.lineWidth=2;hctx.stroke();hctx.lineWidth=6}
+  hctx.beginPath();hctx.moveTo(width/2-flare,height/2);hctx.lineTo(width/2+flare,height/2);hctx.moveTo(width/2,height/2-flare);hctx.lineTo(width/2,height/2+flare);hctx.stroke();hctx.strokeStyle='#fff3e9';hctx.lineWidth=2;hctx.stroke();hctx.restore();
  }
 }
 function formatClock(s){const m=Math.floor(s/60),sec=s%60;return `${String(m).padStart(2,'0')}:${sec.toFixed(2).padStart(5,'0')}`}

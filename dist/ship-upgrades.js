@@ -12,9 +12,18 @@ export const interceptorHull=[
  [[.0035,.020,.021],[0,.007,-.025]]
 ];
 export const cannonHull=[
- [[.010,.007,.011],[0,.021,-.001]],
- [[.0035,.0035,.035],[0,.024,.043]],
- [[.006,.006,.008],[0,.024,.075]]
+ // Armored mount, raised breech, thick barrel and flared muzzle.
+ [[.020,.010,.019],[0,.024,-.003]],
+ [[.014,.011,.024],[0,.036,.014]],
+ [[.007,.007,.041],[0,.040,.052]],
+ [[.013,.012,.014],[0,.040,.087]],
+ // Twin accelerator rails, side cooling pods, rear capacitor and sight.
+ [[.0045,.007,.045],[-.010,.036,.047]],
+ [[.0045,.007,.045],[.010,.036,.047]],
+ [[.005,.014,.020],[-.019,.030,.006]],
+ [[.005,.014,.020],[.019,.030,.006]],
+ [[.010,.010,.012],[0,.038,-.016]],
+ [[.003,.004,.016],[0,.051,.021]]
 ];
 const stock=hullParts(0),outfits=[stock,[...stock,...cannonHull],interceptorHull,[...interceptorHull,...cannonHull]];
 const vec=v=>`vec3(${v.map(x=>x.toFixed(8)).join(',')})`;
@@ -29,9 +38,9 @@ export function awardUpgrade(player,mission){
 }
 export function playerHull(player){
  const outfit=(player.upgrades?.frame?2:0)+(player.upgrades?.cannon?1:0);
- return {id:'YOUR ROCKET',A:player.X,B:player.U,C:[player.R,player.V,player.F],kind:outfit>=2?5:0,size:.8,hue:.95,boundRadius:outfit ? .11 : .065,parts:outfits[outfit],outfit,own:true,isPlayer:true};
+ return {id:'YOUR ROCKET',A:player.X,B:player.U,C:[player.R,player.V,player.F],kind:outfit>=2?5:0,size:.8,hue:.95,boundRadius:player.upgrades?.cannon ? .13 : outfit ? .11 : .065,parts:outfits[outfit],outfit,own:true,isPlayer:true};
 }
-export const laserMuzzle=player=>player.upgrades?.cannon?[0,.024*.8,.084*.8]:[0,0,.04];
+export const laserMuzzle=player=>player.upgrades?.cannon?[0,.040*.8,.103*.8]:[0,0,.04];
 export function engineNozzles(player,mode,exhaust){
  if(mode==='forward')return player.upgrades?.frame?[[-.0296,-.0032,-.0552],[.0296,-.0032,-.0552]]:[[0,0,-.039]];
  if(mode==='reverse')return player.upgrades?.frame?[[-.03,0,.027],[.03,0,.027]]:[[-.017,0,.022],[.017,0,.022]];
