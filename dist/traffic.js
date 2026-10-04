@@ -1,8 +1,8 @@
 import {seeded,geodesicAt,add} from './physics.js?v=15';
-import {createLaser,advanceLasers} from './lasers.js?v=15';
+import {createLaser,advanceLasers} from './lasers.js?v=26';
 // Emission times use the global clock. These are independent of frame rate and time warp.
 export class TrafficFire {
- constructor(fleet,seed=190726){this.fleet=fleet;this.seed=seed;this.reset()}
+ constructor(fleet,seed=190726,obstacles=[]){this.fleet=fleet;this.seed=seed;this.obstacles=obstacles;this.reset()}
  reset(time=0){
   this.random=seeded(this.seed);this.enabled=true;this.shots=0;
   const shuffled=this.fleet.slice();for(let i=shuffled.length-1;i>0;i--){const j=Math.floor(this.random()*(i+1));[shuffled[i],shuffled[j]]=[shuffled[j],shuffled[i]]}
@@ -13,7 +13,7 @@ export class TrafficFire {
   s.next=time+.6+this.random()*1.2;
   const state=geodesicAt(s.ship,time),angle=this.random()*Math.PI*2,tilt=this.random()*.35,C=s.ship.C;
   const direction=add(add(C[2],C[0],Math.cos(tilt),Math.sin(tilt)*Math.cos(angle)),C[1],1,Math.sin(tilt)*Math.sin(angle));
-  this.shots++;return createLaser({...state,F:C[2],t:time},this.fleet,direction,s.ship);
+  this.shots++;return createLaser({...state,F:C[2],t:time},[...this.fleet,...this.obstacles],direction,s.ship);
  }
 }
 // Process hits before each emission: a ship destroyed earlier in this step cannot fire.
