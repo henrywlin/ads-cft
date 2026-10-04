@@ -73,3 +73,18 @@ dialog{font-size:10px;line-height:1.9}dialog h1{font-size:20px;line-height:1.7}d
  .touch-controls .touch-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.touch-hint{display:none}
  #app.controls-visible .instruments{grid-column:1/-1;grid-row:3;border-left:0}#app.controls-visible footer{grid-row:4}
 }
+
+/* The opening story precedes the existing arcade pilot-selection screen. */
+body.story-open{overflow:hidden}
+#introScreen:not([hidden]){position:fixed;inset:0;z-index:60;display:grid;grid-template-rows:minmax(0,1fr) auto;background:radial-gradient(ellipse at 50% 20%,#103042 0%,#080f1c 65%,#040911 100%);color:#cbdde5}
+#introScreen::before{content:'';position:absolute;inset:0;pointer-events:none;z-index:1;background:repeating-linear-gradient(transparent 0,transparent 3px,#00000018 3px,#00000018 4px)}
+.intro-body{position:relative;z-index:2;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#365768 transparent;width:min(940px,100%);margin:0 auto;padding:35px 40px 20px;outline-offset:-5px}
+.intro-brand{display:flex;align-items:center;gap:10px;color:#d8f8fa;font-size:12px;line-height:1.8;padding-bottom:25px;border-bottom:1px solid #32526077}
+.intro-brand b{color:var(--cyan);font-weight:400}.intro-brand span{font-size:8px;color:#92aebb;margin-left:auto}
+#introTitle{font-size:27px;font-weight:400;line-height:1.9;letter-spacing:-.04em;color:#eefaff;margin:25px 0 30px;text-shadow:0 0 25px #6beaf022}
+#introTitle span{display:block;font-size:15px;letter-spacing:0;color:#efc784;margin-top:4px}
+.intro-story{font-size:10px;line-height:2.3;overflow-wrap:break-word}.intro-story p{margin:0 0 24px}.intro-story .intro-welcome{color:var(--cyan);border-left:2px solid #63e5e680;padding-left:18px;margin-bottom:8px}
+.intro-actions{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:13px;padding:20px 20px max(20px,env(safe-area-inset-bottom));background:#080f1cee;border-top:1px solid #294653;box-shadow:0 -15px 30px #080f1c77}
+#introContinue{min-height:48px;padding:16px 24px;border:1px solid #b7ffff;background:var(--cyan);color:#08222a;font-size:10px;line-height:1.8;box-shadow:0 4px 0 #246577}
+#introContinue:hover{background:#c2ffff}#introContinue:active{transform:translateY(2px);box-shadow:0 2px 0 #246577}.intro-actions>span{font-size:7px;color:#87a9b8;line-height:1.8;letter-spacing:.06em}
+@media(max-width:620px){.intro-body{padding:24px 22px 14px}.intro-brand{font-size:10px;padding-bottom:19px;gap:7px}.intro-brand span{font-size:6px;max-width:110px;text-align:right;line-height:2}#introTitle{font-size:17px;margin:23px 0}#introTitle span{font-size:12px}.intro-story{font-size:9px;line-height:2.4}.intro-story p{margin-bottom:24px}.intro-story .intro-welcome{padding-left:13px}.intro-actions{padding-top:15px;padding-bottom:max(15px,env(safe-area-inset-bottom));gap:12px}#introContinue{font-size:9px;padding:13px 20px}}

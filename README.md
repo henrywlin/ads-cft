@@ -2,6 +2,8 @@
 
 Cosmic Flight Trainer.
 
+The opening story begins in 2126 (98 AAGI), when AI has solved theoretical physics and human physicists enter a graphene quantum system to explore gravity. Choose **Choose your pilot**, or press Enter, to reach the retro launch screen. Use the arrow keys to move between pilots, then press Enter again to launch. Pilot selection wraps at either end; Tab also reaches the selected pilot and launch controls. The story scrolls independently on smaller screens, with the continue button always visible.
+
 The retro launch screen lets you select a pilot and enable an original procedural synth score. Audio starts on a user gesture; the cockpit Sound button mutes it.
 
 A self-contained browser flight simulator in the universal cover of global AdS4. [Play AdS CFT](https://henrywlin.github.io/ads-cft/), or run `python -m http.server 8080 --directory dist` and visit http://localhost:8080. Requires WebGL 2. No build or dependencies are required.
@@ -34,11 +36,11 @@ The orbital map is a simultaneous global-time x/z projection of the conformal ba
 
 ## Browser rendering
 
-The floating-point ship texture explicitly uses a high-precision sampler, avoiding precision loss on WebGL implementations such as Safari's Metal backend. The star atlas is limited to 2048 pixels across; overlay pixel density is capped to reduce mobile memory use. The renderer adapts its resolution when GPU frames run slowly, without changing the geodesic calculation. Overlay effects update independently of the GPU queue. A lost WebGL context rebuilds its shaders and textures on restoration.
+The floating-point ship texture explicitly uses a high-precision sampler, avoiding precision loss on WebGL implementations such as Safari's Metal backend. The star atlas is limited to 2048 pixels across; overlay pixel density is capped to reduce mobile memory use. The renderer adapts its resolution when GPU frames run slowly, without changing the geodesic calculation. It ignores idle/paused/background gaps, keeps a viewport-based minimum resolution on hardware GPUs, and restores detail after sustained fast frames. The Graphics selector also offers fixed High and Performance settings. Software renderers retain a conservative Auto budget. Overlay effects update independently of the GPU queue. A lost WebGL context rebuilds its shaders and textures on restoration.
 
 ## Verification
 
-Run `node tests/physics.mjs` and `node tests/lasers.mjs`. The checks cover free geodesic conservation, accelerated tetrad constraints, integration convergence, circular outer orbits, retarded light cones, exact boundary frequency/time formulas, clock rates, specular reflections, direct/reflected hull impacts, chronological absorption, and immediate absorption inside a hull. Browser validation covers rendering, steering/burns, pause, reset, time warp, keyboard controls, pilot selection, audio, both cameras, laser firing, and a mobile viewport.
+Run `node tests/physics.mjs`, `node tests/lasers.mjs`, and `node tests/resolution.mjs`. The rendering checks cover idle-time rejection, minimum detail, recovery after slow frames, and fixed quality presets. The checks cover free geodesic conservation, accelerated tetrad constraints, integration convergence, circular outer orbits, retarded light cones, exact boundary frequency/time formulas, clock rates, specular reflections, direct/reflected hull impacts, chronological absorption, and immediate absorption inside a hull. Browser validation covers rendering, steering/burns, pause, reset, time warp, keyboard controls, pilot selection, audio, both cameras, laser firing, and a mobile viewport.
 
 With Playwright installed and the local server running, `node tests/browser.cjs chromium` or `node tests/browser.cjs webkit` checks actual rendered pixels and pilot paint changes, exhaust visibility, live engine audio and release, laser/explosion audio waveforms and their event triggers, visible combat effects, destruction and reset, tap-target sizes, simultaneous touch controls, held fire, touch cancellation, portrait/landscape layout and graphics-context restoration. Combat audio waveforms use OfflineAudioContext so a slow software GPU cannot make a short sound expire before it is sampled. Its deterministic target is injected only in the browser's intercepted test response; production assets have no test hooks. A separate WebKit desktop check verified rendering and the control toggle on a mouse-only viewport. Linux WebKit checks exercise Safari's engine, but do not run Apple's Metal driver on a physical Mac.
 

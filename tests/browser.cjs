@@ -15,7 +15,7 @@ const lossExtension=gl.getExtension('WEBGL_lose_context'),soundCalls={laser:0,ex
  await p.goto(process.env.ADS_URL || 'http://127.0.0.1:8080/',{waitUntil:'domcontentloaded'});await p.waitForFunction(()=>window.adsFlight?.getState().renderer.frames>0);console.log(JSON.stringify({engine,stage:'render',pixels:await p.evaluate(()=>window.__pixels),state:await p.evaluate(()=>window.adsFlight.getState())}));
  const pixels=await p.evaluate(()=>window.__pixels);assert.ok(pixels.lit>250);assert.equal(pixels.error,0);
  assert.ok(await p.locator('.touch-controls').isVisible());assert.ok(await p.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
- await p.locator('#launchButton').click({force:true});await p.waitForFunction(()=>window.adsFlight.getState().properTime>0);
+ await p.locator('#introContinue').click();await p.keyboard.press('ArrowLeft');assert.equal((await p.evaluate(()=>window.adsFlight.getState())).pilot,'Edward Witten');await p.keyboard.press('ArrowRight');assert.equal((await p.evaluate(()=>window.adsFlight.getState())).pilot,'Juan Maldacena');await p.locator('#launchButton').click({force:true});await p.waitForFunction(()=>window.adsFlight.getState().properTime>0);
  for(const name of ['KeyW','KeyS','KeyQ','KeyE','Space','KeyF','ArrowUp','ArrowDown','ArrowLeft','ArrowRight']){const box=await p.locator('[data-key="'+name+'"]').boundingBox();assert.ok(box.width>=44&&box.height>=44,name+' has a small tap target')}
  assert.equal(await p.locator('.speed-readout .label').innerText(),'GLOBAL VELOCITY');
  await p.waitForFunction(()=>window.adsFlight.getState().music);await p.evaluate(()=>window.__qa.audioAttach());
