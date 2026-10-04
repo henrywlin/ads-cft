@@ -1,4 +1,4 @@
-import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=15';
+import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=20';
 import {ResolutionController} from './resolution.js?v=6';
 import {ArcadeScore} from './music.js?v=10';
 import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent} from './lasers.js?v=15';
@@ -11,12 +11,12 @@ const $=id=>document.getElementById(id),canvas=$('space'),hud=$('overlay'),map=$
 // Static launch/briefing frames must survive compositor clears in Safari.
 // Let the browser choose the GPU instead of forcing a graphics switch on launch.
 const gl=(()=>{try{return canvas.getContext('webgl2',{alpha:false,antialias:false,depth:false,stencil:false,preserveDrawingBuffer:true,powerPreference:'default'})}catch(error){console.warn('Graphics context creation failed',error);return null}})();
-const fleet=makeFleet(72),L_SECONDS=30,keys=new Set(),trafficFire=new TrafficFire(fleet);
+const fleet=makeFleet(),L_SECONDS=30,keys=new Set(),trafficFire=new TrafficFire(fleet);
 const latestPlayerBeam=()=>{for(let i=beams.length-1;i>=0;i--)if(beams[i].owner!=='traffic')return beams[i];return null};
 const destroyedCount=()=>fleet.filter(s=>Number.isFinite(s.deathTime)).length;
 let player=initialPlayer(),paused=false,grid=true,warp=1,accel=1.5,last=performance.now(),width=1,height=1,frame=0,lastUi=0,fps=60,drag=null,noticeTimer;
 let gameOver=false,deathAnimation=0;
-let launched=false,dirty=true,pendingFence=null,musicWanted=true,effectTime=0,renderedFrames=0,renderedTraffic=72,contextLost=false;const score=new ArcadeScore();
+let launched=false,dirty=true,pendingFence=null,musicWanted=true,effectTime=0,renderedFrames=0,renderedTraffic=fleet.length,contextLost=false;const score=new ArcadeScore();
 const EXPLOSION_SECONDS=1.6,touchHolds=new Map();
 let chase=true,beams=[],lastShot=-Infinity,kills=0,shots=0,lastImpact=null;
 const flightProgram=new MissionProgram();let missionTargetId=null,pendingMission=null;const announcedMissions=new Set();
@@ -109,7 +109,8 @@ document.querySelectorAll('[data-key]').forEach(b=>{
  for(const event of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(event,e=>{touchHolds.delete(e.pointerId);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')});
  b.addEventListener('click',e=>{if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused)return;if(e.detail===0){if(b.dataset.key==='KeyF')fire();else{const token=Symbol();touchHolds.set(token,b);b.classList.add('pressed');setTimeout(()=>{touchHolds.delete(token);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')},140)}}});
 });
-let program,skyTexture,shipTexture,vertexArray,locations={},fleetData=new Float32Array(9*73*4);
+const fleetCapacity=fleet.length+1; // Includes the player hull in chase view.
+let program,skyTexture,shipTexture,vertexArray,locations={},fleetData=new Float32Array(9*fleetCapacity*4);
 function initRenderer(){
  graphicsStatus('starting','Preparing the flight view…');
  if(!gl){graphicsStatus('failed','Graphics could not start. Reload the game to retry.');return}
@@ -275,7 +276,7 @@ function initRenderer(){
    }
   }
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sky);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-  shipTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,9,73,0,gl.RGBA,gl.FLOAT,fleetData);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.uniform1i(locations.sky,0);gl.uniform1i(locations.fleet,1);
+  shipTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,9,fleetCapacity,0,gl.RGBA,gl.FLOAT,fleetData);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.uniform1i(locations.sky,0);gl.uniform1i(locations.fleet,1);
   if(gl.getError()!==gl.NO_ERROR)throw Error('Unable to initialize the ray-tracing textures');
  }catch(e){console.error(e);program=null;graphicsStatus('failed','Graphics could not start. Reload the game to retry.')}
 }
@@ -338,8 +339,10 @@ function draw(active=false){
    labeled++;const size=Math.max(7,Math.min(24,.065*s.size/Math.max(.07,view.distance)*height));
    hctx.strokeStyle='rgba(119,172,207,.38)';hctx.lineWidth=.7;
    for(const [a,b,c,e] of [[-1,-1,1,1],[1,-1,-1,1],[-1,1,1,-1],[1,1,-1,-1]]){hctx.beginPath();hctx.moveTo(x+a*size+c*5,y+b*size);hctx.lineTo(x+a*size,y+b*size);hctx.lineTo(x+a*size,y+b*size+e*5);hctx.stroke()}
-   hctx.fillStyle='rgba(168,199,224,.68)';hctx.fillText(`${s.id}${reflected?' · REFLECTED':''}`,x+size+8,y-3);
-   hctx.fillStyle='rgba(117,151,184,.62)';hctx.fillText(`×${view.shift.toFixed(2)} ${view.shift<.975?'RED':view.shift>1.025?'BLUE':'NEUTRAL'} · ${(view.delay*L_SECONDS).toFixed(1)} s ago`,x+size+8,y+11);
+   const name=`${s.id}${reflected?' · REFLECTED':''}`,spectrum=`×${view.shift.toFixed(2)} ${view.shift<.975?'RED':view.shift>1.025?'BLUE':'NEUTRAL'} · ${(view.delay*L_SECONDS).toFixed(1)} s ago`;
+   const labelWidth=Math.max(hctx.measureText(name).width,hctx.measureText(spectrum).width),labelX=Math.max(12,Math.min(x+size+8,width-labelWidth-12));
+   hctx.fillStyle='rgba(168,199,224,.68)';hctx.fillText(name,labelX,y-3);
+   hctx.fillStyle='rgba(117,151,184,.62)';hctx.fillText(spectrum,labelX,y+11);
   }
  }
  // A current-frame proxy makes our own hull and immediate engine cues agree.
@@ -365,7 +368,7 @@ function draw(active=false){
   row(i,6,[dot(observer.R,s.A),dot(observer.R,s.B),dot(observer.V,s.A),dot(observer.V,s.B)]);row(i,7,[dot(observer.F,s.A),dot(observer.F,s.B),0,0]);
   const bounds=shipBounds(s,observer,3/canvas.height,!s.own);bounds[3]=Number.isFinite(s.deathTime)?s.deathTime:-1;row(i,8,bounds);
  });
- gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,9,73,gl.RGBA,gl.FLOAT,fleetData);gl.drawArrays(gl.TRIANGLES,0,3);
+ gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,9,fleetCapacity,gl.RGBA,gl.FLOAT,fleetData);gl.drawArrays(gl.TRIANGLES,0,3);
  pendingFence=gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE,0);if(!pendingFence){recoverGraphics();return}pendingGeneration=surfaceGeneration;gl.flush();gpuStarted=performance.now();gpuLastPoll=gpuStarted;gpuSampleValid=active;dirty=false;renderedFrames++;
 }
 function drawMissionAim(){
@@ -524,7 +527,7 @@ function tick(now){
  if(!document.hidden&&(active||dirty))draw(active);if(now-lastUi>100){updateUi();lastUi=now}frame++;requestAnimationFrame(tick);
 }
 // State read-back is useful for scientific inspection and automated validation.
-window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:graphicsReady&&!contextLost,status:graphicsState,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
+window.adsFlight={getState:()=>({launched,gameOver,flightProgram:flightProgram.getState(),storyVisible:!$('introScreen').hidden,storyParagraph:$('introScreen').hidden?null:introStep+1,storyParagraphs:introPages.length,pilot:pilotNames[pilot],music:score.playing,shipColor:pilotColors[pilot],engine:{level:engineLevel,mode:engineMode,soundLevel:score.thrustLevel,force:thrustForce.slice(),exhaust:exhaust.slice()},chaseCamera:{lag:chaseCamera.lag,rate:chaseCamera.rate},camera:chase?'chase':'cockpit',globalTime:player.t,properTime:player.tau,paused,warp,baseSpeed:1.5,effectiveSpeed:1.5*warp,grid,controlsVisible:$('app').classList.contains('controls-visible'),activeControls:gameKeys.filter(held),renderer:{ready:graphicsReady&&!contextLost,status:graphicsState,frames:renderedFrames,traffic:renderedTraffic,width:canvas.width,height:canvas.height,quality:resolution.mode,pixelBudget:Math.round(resolution.budget),minimumPixels:Math.round(resolution.floor),maximumPixels:Math.round(resolution.ceiling)},explosions:fleet.filter(s=>s.explosionStarted!==undefined&&!s.visualRemoved).length,removedShips:fleet.filter(s=>s.visualRemoved).length,telemetry:telemetry(player),constraints:{position:dot(player.X,player.X),velocity:dot(player.U,player.U),orthogonality:dot(player.X,player.U)},fleetCount:fleet.length,fleetRoster:fleet.map(s=>({ship:s.id,honoree:s.honoree})),aliveShips:fleet.length-destroyedCount(),trafficShots:trafficFire.shots,armedShips:trafficFire.shooters.filter(s=>!Number.isFinite(s.ship.deathTime)).length,shots,kills,latestBeam:beams.length?{reflections:bounceCount(beams.at(-1),player.t),impact:beams.at(-1).impact}:null,boundaryOrbiters:fleet.filter(s=>s.boundaryOrbit).map(s=>({id:s.id,radius:norm3(geodesicAt(s,player.t).X.slice(2)),alive:!Number.isFinite(s.deathTime)}))}),reset,setPause,selectPilot,launch,fire,setCamera};
 if(document.modelContext?.registerTool){
  const lifecycle=new AbortController();
  const specs=[

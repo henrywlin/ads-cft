@@ -1,3 +1,4 @@
+import {fleetPhysicists} from './fleet-names.js?v=20';
 // Dimensionless units c = L = 1; ambient signature (-,-,+,+,+).
 export const dot=(a,b)=>-a[0]*b[0]-a[1]*b[1]+a[2]*b[2]+a[3]*b[3]+a[4]*b[4];
 export const add=(a,b,sa=1,sb=1)=>a.map((v,i)=>sa*v+sb*b[i]);
@@ -138,7 +139,7 @@ export function hullParts(kind){
   if(kind===3)return [ [[.054,.007,.043],[0,.015,.032]], [[.015,.015,.048],[0,-.018,-.030]], [[.009,.009,.055],[-.041,.006,-.050]], [[.009,.009,.055],[.041,.006,-.050]], [[.044,.004,.008],[0,-.002,-.045]], [[.007,.020,.014],[0,0,.007]] ];
   return [ [[.013,.014,.047],[0,0,0]], [[.043,.0035,.020],[0,-.005,-.008]] ];
 }
-export function makeFleet(count=72){
+export function makeFleet(count=fleetPhysicists.length){
   const rand=seeded(58204),fleet=[];
   for(let i=0;i<count;i++){
     const boundaryOrbit=i>=count-2,r=boundaryOrbit?(i===count-2?10:20):(.18+rand()*2.2)*1.5,z=rand()*2-1,a=rand()*TAU,n=[Math.sqrt(1-z*z)*Math.cos(a),z,Math.sqrt(1-z*z)*Math.sin(a)],x=n.map(v=>v*r);
@@ -151,7 +152,7 @@ export function makeFleet(count=72){
     const A=eventAt(x),frame=movingFrame(A,vel),f=unit3(vel),right=unit3([f[2],0,-f[0]]),up=[f[1]*right[2]-f[2]*right[1],f[2]*right[0]-f[0]*right[2],f[0]*right[1]-f[1]*right[0]];
     const combine=v=>frame.E.reduce((acc,e,j)=>add(acc,e,1,v[j]),[0,0,0,0,0]);
     const kind=i%4;
-    fleet.push({id:boundaryOrbit?`BOUNDARY ${i===count-2?'01':'02'}`:`VESSEL ${String(i+1).padStart(2,'0')}`,A,B:frame.U,C:[combine(right),combine(up),combine(f)],size:.7+rand()*.7,hue:rand(),kind,boundRadius:[.065,.115,.13,.145][kind],boundaryOrbit});
+    fleet.push({id:fleetPhysicists[i]?.ship??`VESSEL ${String(i+1).padStart(2,'0')}`,honoree:fleetPhysicists[i]?.name??null,A,B:frame.U,C:[combine(right),combine(up),combine(f)],size:.7+rand()*.7,hue:rand(),kind,boundRadius:[.065,.115,.13,.145][kind],boundaryOrbit});
   }
   return fleet;
 }
