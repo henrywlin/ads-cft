@@ -13,6 +13,23 @@ export function createLaser(player,fleet,direction=player.F,source=null){
  addHullCandidates(beam,fleet,source);
  beam.candidates.sort((a,b)=>a.age-b.age);return beam;
 }
+// A density change replaces collision targets without restarting a pulse or
+// replaying intersections from before the setting changed.
+export function retargetLaserFleet(beam,fleet,now){
+ if(beam.impact)return;
+ const elapsed=Math.max(0,now-beam.t),cycle=Math.floor(elapsed/TAU),phase=elapsed-cycle*TAU;
+ beam.candidates=[];addHullCandidates(beam,fleet,fleet.find(s=>s.id===beam.sourceId));
+ const X=laserEvent(beam,elapsed);
+ if(X)for(const ship of fleet){
+  if(Number.isFinite(ship.deathTime))continue;
+  if(ship.id===beam.sourceId&&elapsed<beam.firstBounce)continue;
+  if((ship.parts??hullParts(ship.kind)).some(([r,c])=>ship.C.reduce((sum,e,i)=>sum+((dot(X,e)-c[i]*ship.size)/(r[i]*ship.size))**2,0)<=1))
+   beam.candidates.push({age:phase,ship,event:X});
+ }
+ beam.candidates.sort((a,b)=>a.age-b.age);
+ beam.cycle=cycle;beam.index=beam.candidates.findIndex(c=>c.age>=phase-1e-9);
+ if(beam.index<0){beam.index=0;beam.cycle++}
+}
 function addHullCandidates(beam,fleet,source=null){
  for(const ship of fleet){
   if(Number.isFinite(ship.deathTime))continue;
