@@ -7,7 +7,7 @@ import {makeTrafficRoster,defaultShipCount} from './fleet-settings.js?v=33';
 import {burnCommand} from './flight-controls.js?v=15';
 import {ChaseCamera,rocketPoint} from './chase.js?v=15';
 import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=32';
-import {compactRadius,mapCoordinates,mapVelocity,orbitPolyline} from './map.js?v=32';
+import {compactRadius,mapCoordinates,mapVelocity,mapVectors,orbitPolyline} from './map.js?v=34';
 import {hullAtlas} from './hull-atlas.js?v=32';
 import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=26';
 import {centralShip,brakingAim} from './docking.js?v=26';
@@ -706,10 +706,11 @@ function cachedOrbitPaths(ship){
  const paths=[[140,[0,2]],[420,[1,2]]].map(([cx,axes])=>{const path=new Path2D();for(let j=0;j<samples.length;j+=3){const x=cx+samples[j+axes[0]]*118,y=173-samples[j+axes[1]]*118;if(j)path.lineTo(x,y);else path.moveTo(x,y)}return path});
  orbitPaths.set(ship,{samples,paths});return paths;
 }
+const MAP_VELOCITY_SCALE=48,MAP_NOSE_LENGTH=26;
 function drawMap(c=mctx,translucent=false){
  c.clearRect(0,0,560,360);
  if(translucent){c.fillStyle='#06132399';c.fillRect(0,0,560,360)}
- const velocity=mapVelocity(player.X,player.U),speed=norm3(velocity),braking=dockingActive()&&brakingAim(player);
+ const {velocity,nose,speed}=mapVectors(player),braking=dockingActive()&&brakingAim(player);
  for(const [cx,axes,title] of [[140,[0,2],'X / Z'],[420,[1,2],'Y / Z']]){
   const radius=118,cy=173,point=X=>{const q=mapCoordinates(X,axes).point;return [cx+q[0]*radius,cy-q[1]*radius]};
   c.lineWidth=1;c.setLineDash([]);c.font=`${translucent?13:9}px "Arcade",monospace`;c.textAlign='center';c.fillStyle='#a7c9df';c.fillText(title,cx,25);
@@ -727,23 +728,30 @@ function drawMap(c=mctx,translucent=false){
   c.fillStyle='#d9e6ff';c.font='7px "Arcade",monospace';c.textAlign='center';c.fillText('AXIOM',cx,cy+19);c.restore();
   if(dockingActive()){c.strokeStyle='#ffb85c';c.setLineDash([2,3]);c.beginPath();c.arc(cx,cy,11,0,TAU);c.stroke();c.setLineDash([])}
   const [x,y]=point(player.X);
-  if(speed>1e-5){
-   // Project one short 3D arrow into both views, shortening it when travel is out of plane.
-   const dx=24*velocity[axes[0]]/speed,dy=-24*velocity[axes[1]]/speed;
+  // Both panels project the same 3D vectors. Velocity length is linear in
+  // beta; the fixed-length nose arrow describes attitude, even at rest.
+  if(speed>1e-8){
+   const dx=MAP_VELOCITY_SCALE*velocity[axes[0]],dy=-MAP_VELOCITY_SCALE*velocity[axes[1]];
    drawMapArrow(c,x,y,dx,dy,'#bdffff');
-   if(braking)drawMapArrow(c,x,y,-dx*1.25,-dy*1.25,'#ffb85c');
+   if(braking)drawMapArrow(c,x,y,-30*velocity[axes[0]]/speed,30*velocity[axes[1]]/speed,'#ffb85c');
   }
+  // A dashed nose shaft leaves both colors readable when nose and travel align.
+  drawMapArrow(c,x,y,MAP_NOSE_LENGTH*nose[axes[0]],-MAP_NOSE_LENGTH*nose[axes[1]],'#f08bff');
   c.beginPath();c.arc(x,y,9,0,TAU);c.strokeStyle='#63e5e660';c.stroke();c.beginPath();c.arc(x,y,4,0,TAU);c.fillStyle='#63e5e6';c.fill();
  }
  c.textAlign='center';c.font=`${translucent?14:10}px "Arcade",monospace`;c.fillStyle='#bdffff';c.fillText(`YOUR RADIUS: ${telemetry(player).r.toFixed(3)} L`,280,322);c.textAlign='left';
- if(dockingActive()){c.font=`${translucent?10:8}px "Arcade",monospace`;c.textAlign='right';c.fillStyle='#bdffff';c.fillText('CYAN: TRAVEL',265,347);c.textAlign='left';c.fillStyle='#ffb85c';c.fillText('AMBER: BRAKE',295,347)}
+ c.font=`${translucent?10:8}px "Arcade",monospace`;c.textAlign='center';
+ c.fillStyle='#bdffff';c.fillText('CYAN: VELOCITY',braking?100:140,347);
+ c.fillStyle='#f08bff';c.fillText('PINK: NOSE',braking?280:420,347);
+ if(braking){c.fillStyle='#ffb85c';c.fillText('AMBER: BRAKE',460,347)}c.textAlign='left';
 }
 function drawMapArrow(c,x,y,dx,dy,color){
- const length=Math.hypot(dx,dy);if(length<=6)return;
- const ux=dx/length,uy=dy/length,head=Math.min(5,length/3);
- c.save();c.lineJoin='round';c.lineCap='round';c.beginPath();c.moveTo(x+ux*5,y+uy*5);c.lineTo(x+dx,y+dy);
- c.moveTo(x+dx-head*(ux+uy*.65),y+dy-head*(uy-ux*.65));c.lineTo(x+dx,y+dy);c.lineTo(x+dx-head*(ux-uy*.65),y+dy-head*(uy+ux*.65));
- c.strokeStyle='#061323';c.lineWidth=4;c.stroke();c.strokeStyle=color;c.lineWidth=2;c.stroke();c.restore();
+ const length=Math.hypot(dx,dy);if(length<=1e-5)return;
+ const ux=dx/length,uy=dy/length,head=Math.min(5,length/3),gap=Math.min(5,length*.2);
+ c.save();c.lineJoin='round';c.lineCap='round';
+ const stroke=()=>{c.strokeStyle='#061323';c.lineWidth=4;c.stroke();c.strokeStyle=color;c.lineWidth=2;c.stroke()};
+ c.setLineDash(color==='#f08bff'?[4,6]:[]);c.beginPath();c.moveTo(x+ux*gap,y+uy*gap);c.lineTo(x+dx,y+dy);stroke();
+ c.setLineDash([]);c.beginPath();c.moveTo(x+dx-head*(ux+uy*.65),y+dy-head*(uy-ux*.65));c.lineTo(x+dx,y+dy);c.lineTo(x+dx-head*(ux-uy*.65),y+dy-head*(uy+ux*.65));stroke();c.restore();
 }
 function tick(now){
  const rawElapsed=Math.max(0,(now-last)/1000),elapsed=Math.min(.06,rawElapsed);last=now;fps=fps*.96+.04/Math.max(.001,rawElapsed);
