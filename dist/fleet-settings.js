@@ -1,7 +1,7 @@
 import {makeFleet} from './physics.js?v=32';
 
 export const shipCounts=[2,12,24,48];
-export const defaultShipCount=48;
+export const defaultShipCount=24;
 
 // Reuse the same worldlines across settings. The two distant circular orbiters
 // stay present even at the minimum; changing density never moves another ship.

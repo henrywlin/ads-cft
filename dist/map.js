@@ -6,6 +6,12 @@ export function mapCoordinates(X,axes=[0,2]){
  const spatial=X.slice(2),r=Math.hypot(...spatial),factor=1/(Math.hypot(1,r)+1);
  return {point:axes.map(i=>spatial[i]*factor),radius:r,compact:compactRadius(r)};
 }
+// A projection can hide radial distance along its omitted axis. This separate
+// gauge uses the full 3D position, on exactly the same scale as the map rings.
+export function mapRadiusGauge(X){
+ const radius=Math.hypot(...X.slice(2));
+ return {radius,compact:compactRadius(radius),ticks:[0,1,3,10].map(r=>({radius:r,compact:compactRadius(r)}))};
+}
 function mapTangent(X,W){
  const spatial=X.slice(2),a=Math.hypot(1,...spatial),radial=spatial.reduce((sum,x,i)=>sum+x*W[i+2],0)/a;
  return spatial.map((x,i)=>(W[i+2]-x*radial/(a+1))/(a+1));

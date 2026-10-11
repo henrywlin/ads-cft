@@ -3,11 +3,11 @@ import {ResolutionController} from './resolution.js?v=32';
 import {ArcadeScore} from './music.js?v=21';
 import {createLaser,advanceLasers,bounceCount,retardedLaser,laserEvent,retargetLaserFleet} from './lasers.js?v=33';
 import {TrafficFire,advanceTraffic} from './traffic.js?v=33';
-import {makeTrafficRoster,defaultShipCount} from './fleet-settings.js?v=33';
+import {makeTrafficRoster,defaultShipCount,shipCounts} from './fleet-settings.js?v=35';
 import {burnCommand} from './flight-controls.js?v=15';
 import {ChaseCamera,rocketPoint} from './chase.js?v=15';
 import {MissionProgram,missionCatalog,reflectedAim} from './missions.js?v=32';
-import {compactRadius,mapCoordinates,mapVelocity,mapVectors,orbitPolyline} from './map.js?v=34';
+import {compactRadius,mapCoordinates,mapVelocity,mapVectors,mapRadiusGauge,orbitPolyline} from './map.js?v=35';
 import {hullAtlas} from './hull-atlas.js?v=32';
 import {pickShipImage,faceDirectImage,directImageBox} from './image-navigation.js?v=26';
 import {centralShip,brakingAim} from './docking.js?v=26';
@@ -237,7 +237,7 @@ document.querySelectorAll('[data-key]').forEach(b=>{
  for(const event of ['pointerup','pointercancel','lostpointercapture'])b.addEventListener(event,e=>{touchHolds.delete(e.pointerId);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')});
  b.addEventListener('click',e=>{if(!graphicsReady||contextLost||gameOver||!launched||!$('introScreen').hidden||paused)return;if(e.detail===0){if(b.dataset.key==='KeyF')fire();else{const token=Symbol();touchHolds.set(token,b);b.classList.add('pressed');setTimeout(()=>{touchHolds.delete(token);if(![...touchHolds.values()].includes(b))b.classList.remove('pressed')},140)}}});
 });
-const fleetCapacity=fleet.length+2; // Includes Axiom and the player hull in chase view.
+const fleetCapacity=Math.max(...shipCounts)+2; // Reserve the maximum setting, plus Axiom and the player.
 let program,skyTexture,shipTexture,hullTexture,vertexArray,locations={},fleetData=new Float32Array(10*fleetCapacity*4);
 function initRenderer(){
  graphicsStatus('starting','Preparing the flight view…');
@@ -711,11 +711,12 @@ function drawMap(c=mctx,translucent=false){
  c.clearRect(0,0,560,360);
  if(translucent){c.fillStyle='#06132399';c.fillRect(0,0,560,360)}
  const {velocity,nose,speed}=mapVectors(player),braking=dockingActive()&&brakingAim(player);
- for(const [cx,axes,title] of [[140,[0,2],'X / Z'],[420,[1,2],'Y / Z']]){
+ for(const [cx,axes,title] of [[140,[0,2],'X/Z PROJECTED'],[420,[1,2],'Y/Z PROJECTED']]){
   const radius=118,cy=173,point=X=>{const q=mapCoordinates(X,axes).point;return [cx+q[0]*radius,cy-q[1]*radius]};
   c.lineWidth=1;c.setLineDash([]);c.font=`${translucent?13:9}px "Arcade",monospace`;c.textAlign='center';c.fillStyle='#a7c9df';c.fillText(title,cx,25);
   for(const r of [1,3,10,Infinity]){const a=r===Infinity?1:compactRadius(r);c.beginPath();c.arc(cx,cy,a*radius,0,TAU);c.strokeStyle=r===Infinity?'#58778c':translucent?'#4c6d87':'#2c4156';c.stroke();c.fillStyle='#829ab0';c.fillText(r===Infinity?'∞':`${r}L`,cx+13,cy-a*radius+11)}
   c.strokeStyle='#273749';c.setLineDash([3,6]);c.beginPath();c.moveTo(cx-radius,cy);c.lineTo(cx+radius,cy);c.moveTo(cx,cy-radius);c.lineTo(cx,cy+radius);c.stroke();c.setLineDash([]);c.textAlign='left';
+  c.save();c.font='7px "Arcade",monospace';c.fillStyle='#a7c9df';c.textAlign='center';c.fillText('+Z',cx-18,cy-radius-9);c.fillText(axes[0]===0?'+X':'+Y',cx+radius-12,cy+14);c.restore();
   const trail=ship=>{c.strokeStyle=ship.boundaryOrbit?'#e9bc7965':translucent?'#6d90be80':'#45659450';c.stroke(cachedOrbitPaths(ship)[cx===140?0:1])};
   for(let i=0;i<fleet.length;i++){const ship=fleet[i];if(Number.isFinite(ship.deathTime))continue;if(i%7===0||ship.boundaryOrbit)trail(ship);const [x,y]=point(geodesicAt(ship,player.t).X);c.fillStyle=ship.boundaryOrbit?'#e9bc79':translucent?'#9dbff5':'#80a6e090';c.fillRect(x-2,y-2,4,4)}
   const target=missionTarget();if(target){const [x,y]=point(geodesicAt(target,player.t).X);c.strokeStyle='#ffd287';c.lineWidth=2;c.beginPath();c.arc(x,y,7,0,TAU);c.stroke();c.lineWidth=1}
@@ -739,11 +740,23 @@ function drawMap(c=mctx,translucent=false){
   drawMapArrow(c,x,y,MAP_NOSE_LENGTH*nose[axes[0]],-MAP_NOSE_LENGTH*nose[axes[1]],'#f08bff');
   c.beginPath();c.arc(x,y,9,0,TAU);c.strokeStyle='#63e5e660';c.stroke();c.beginPath();c.arc(x,y,4,0,TAU);c.fillStyle='#63e5e6';c.fill();
  }
- c.textAlign='center';c.font=`${translucent?14:10}px "Arcade",monospace`;c.fillStyle='#bdffff';c.fillText(`YOUR RADIUS: ${telemetry(player).r.toFixed(3)} L`,280,322);c.textAlign='left';
+ drawMapRadiusGauge(c,translucent);
  c.font=`${translucent?10:8}px "Arcade",monospace`;c.textAlign='center';
- c.fillStyle='#bdffff';c.fillText('CYAN: VELOCITY',braking?100:140,347);
- c.fillStyle='#f08bff';c.fillText('PINK: NOSE',braking?280:420,347);
- if(braking){c.fillStyle='#ffb85c';c.fillText('AMBER: BRAKE',460,347)}c.textAlign='left';
+ c.fillStyle='#bdffff';c.fillText('CYAN: VELOCITY',braking?100:140,354);
+ c.fillStyle='#f08bff';c.fillText('PINK: NOSE',braking?280:420,354);
+ if(braking){c.fillStyle='#ffb85c';c.fillText('AMBER: BRAKE',460,354)}c.textAlign='left';
+}
+function drawMapRadiusGauge(c,translucent){
+ const {radius,compact,ticks}=mapRadiusGauge(player.X),left=44,right=516,y=308,x=left+(right-left)*compact;
+ c.save();c.setLineDash([]);c.lineWidth=1;c.textAlign='center';c.font='7px "Arcade",monospace';
+ c.strokeStyle='#58778c';c.beginPath();c.moveTo(left,y);c.lineTo(right,y);c.stroke();
+ for(const tick of [...ticks,{radius:Infinity,compact:1}]){
+  const tx=left+(right-left)*tick.compact;c.beginPath();c.moveTo(tx,y-3);c.lineTo(tx,y+3);c.stroke();
+  c.fillStyle='#a7c9df';c.fillText(tick.radius===Infinity?'∞':`${tick.radius}L`,tx,y-7);
+ }
+ c.strokeStyle='#63e5e6';c.lineWidth=2;c.beginPath();c.moveTo(left,y);c.lineTo(x,y);c.stroke();
+ c.fillStyle='#bdffff';c.beginPath();c.moveTo(x,y+2);c.lineTo(x-4,y+8);c.lineTo(x+4,y+8);c.closePath();c.fill();
+ c.font=`${translucent?12:9}px "Arcade",monospace`;c.fillText(`3D RADIUS: ${radius.toFixed(3)} L`,280,333);c.restore();
 }
 function drawMapArrow(c,x,y,dx,dy,color){
  const length=Math.hypot(dx,dy);if(length<=1e-5)return;

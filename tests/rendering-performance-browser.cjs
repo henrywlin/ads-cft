@@ -17,7 +17,7 @@ const engine=process.argv[2]||'chromium';
     let referenceCulling=false;
     window.__renderQa={
      ready(){gl.finish();tick(last+20);return graphicsReady},
-     fixture(name){reset();trafficFire.enabled=false;flightProgram.nextOffer=()=>null;chase=name!=='cockpit';
+     fixture(name){setShipCount(48);reset();trafficFire.enabled=false;flightProgram.nextOffer=()=>null;chase=name!=='cockpit';
       if(name==='central-close'){const X=eventAt([0,0,.4]),m=staticFrame(X);player={X,U:m.T,R:m.E[0],V:m.E[1],F:scale(m.E[2],-1),t:0,tau:0}}
       if(name==='inside-axiom'){const X=eventAt([0,0,.03]),m=staticFrame(X);player={X,U:m.T,R:m.E[0],V:m.E[1],F:scale(m.E[2],-1),t:0,tau:0};chase=false}
       if(name==='fast-forward'||name==='fast-turn'){advance(player,.9,2.5);if(name==='fast-turn')rotate(player,1.7,.8,.3)}

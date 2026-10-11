@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import {add,eventAt,movingFrame,rotate,telemetry} from '../dist/physics.js';
-import {mapCoordinates,mapVelocity,mapVectors} from '../dist/map.js';
+import {add,eventAt,movingFrame,rotate,telemetry,boost} from '../dist/physics.js';
+import {mapCoordinates,mapVelocity,mapVectors,mapRadiusGauge} from '../dist/map.js';
 
 const close=(a,b,tolerance=1e-8)=>assert.ok(Math.abs(a-b)<tolerance,`${a} != ${b}`);
 const length=v=>Math.hypot(...v);
@@ -92,4 +92,24 @@ close(Math.hypot(diagonal.velocity[0],diagonal.velocity[2]),Math.SQRT2*.2);
 close(Math.hypot(diagonal.velocity[1],diagonal.velocity[2]),Math.SQRT2*.2);
 assert.ok(Math.hypot(diagonal.velocity[0],diagonal.velocity[2])<diagonal.speed);
 
-console.log('Map vectors: speed-proportional global velocity, compact-coordinate derivatives, simultaneous nose orientation, attitude-only turns, and both projection foreshortenings pass.');
+// Reproduce the reported mismatch: both projected dots can be inside 10L,
+// while the independent full-radius gauge must be beyond its 10L tick.
+const diagonalPosition=eventAt([12/Math.sqrt(3),12/Math.sqrt(3),12/Math.sqrt(3)]);
+for(const axes of [[0,2],[1,2]])assert.ok(length(mapCoordinates(diagonalPosition,axes).point)<mapRadiusGauge(eventAt([10,0,0])).compact);
+assert.ok(mapRadiusGauge(diagonalPosition).compact>mapRadiusGauge(eventAt([10,0,0])).compact);
+for(const radius of [0,1,3,9.99,10,10.01,12,20,100])for(const direction of [[1,0,0],[0,1,0],[0,0,-1],normalized([2,-3,4])]){
+ const X=eventAt(direction.map(v=>v*radius)),gauge=mapRadiusGauge(X);
+ close(gauge.radius,radius);close(gauge.compact,Math.tan(Math.atan(radius)/2));
+ assert.deepEqual(gauge.ticks.map(t=>t.radius),[0,1,3,10]);
+ if(radius!==10)assert.equal(gauge.compact>gauge.ticks.at(-1).compact,radius>10);
+}
+
+// The displayed nose must agree with the velocity change from a forward burn,
+// even with tilted attitude and high transverse momentum. Reverse opposes it.
+for(const radius of [0,.78,12,20])for(const velocity of [[0,0,0],[.2,-.1,.3],[.8,.2,.1]])for(const burn of [-1,1]){
+ const p=player([radius/Math.sqrt(3),radius/Math.sqrt(3),radius/Math.sqrt(3)],velocity);
+ rotate(p,.71,-.38,.23);const before=mapVectors(p);
+ boost(p,p.F,burn*1e-6);const after=mapVectors(p),change=normalized(after.velocity.map((v,i)=>v-before.velocity[i]));
+ change.forEach((v,i)=>close(v,burn*before.nose[i],2e-6));
+}
+console.log('Map vectors: full 3D radius crossing 10L, projected-radius ambiguity, global speed scaling, motion derivatives, simultaneous nose/thrust directions and projection foreshortening pass.');

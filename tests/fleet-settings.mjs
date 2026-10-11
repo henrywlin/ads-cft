@@ -4,7 +4,7 @@ import {makeFleet,initialPlayer,add,geodesicAt,norm3,TAU} from '../dist/physics.
 import {createLaser,retargetLaserFleet,advanceLasers,laserEvent} from '../dist/lasers.js';
 
 const roster=makeTrafficRoster();
-assert.deepEqual(shipCounts,[2,12,24,48]);assert.equal(defaultShipCount,48);
+assert.deepEqual(shipCounts,[2,12,24,48]);assert.equal(defaultShipCount,24);
 assert.deepEqual(roster.all,makeFleet(),'Default worldlines and honorees stay unchanged');
 for(const count of shipCounts){
  const ships=roster.ships(count);assert.equal(ships.length,count);assert.equal(new Set(ships.map(s=>s.id)).size,count);

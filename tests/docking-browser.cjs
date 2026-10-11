@@ -26,7 +26,7 @@ const engine=process.argv[2]||'chromium';
   await page.waitForFunction(()=>window.__dockQa.ready(),null,{polling:80});
   await page.locator('#launchSound').click();await page.locator('#launchButton').click();for(let i=0;i<5;i++)await page.keyboard.press('Enter');
   await page.evaluate(()=>window.__dockQa.reset());
-  const station=await page.evaluate(()=>window.__dockQa.station());assert.equal(station.fleet,48);assert.ok(station.pieces>30);assert.ok(station.position.every(x=>Math.abs(x)<1e-12));
+  const station=await page.evaluate(()=>window.__dockQa.station());assert.equal(station.fleet,24);assert.ok(station.pieces>30);assert.ok(station.position.every(x=>Math.abs(x)<1e-12));
   await page.evaluate(()=>window.__dockQa.centerVisible(false));const without=await page.evaluate(()=>window.__dockQa.pixels());
   await page.evaluate(()=>window.__dockQa.centerVisible(true));const withShip=await page.evaluate(()=>window.__dockQa.pixels());
   let changed=0;for(let i=0;i<withShip.length;i+=4)if(Math.abs(withShip[i]-without[i])+Math.abs(withShip[i+1]-without[i+1])+Math.abs(withShip[i+2]-without[i+2])>20)changed++;
