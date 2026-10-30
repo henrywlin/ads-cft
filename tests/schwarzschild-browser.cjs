@@ -2,13 +2,13 @@ const assert=require('node:assert/strict');
 const {chromium,webkit}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 const engine=process.argv[2]||'chromium';
 (async()=>{const browser=await(engine==='webkit'?webkit:chromium).launch(engine==='webkit'?{headless:true}:{headless:true,executablePath:process.env.CHROMIUM_EXECUTABLE||'/usr/bin/chromium',args:['--no-sandbox','--enable-unsafe-swiftshader','--disable-dev-shm-usage']});try{
- const p=await browser.newPage({viewport:{width:1400,height:900},reducedMotion:'reduce'}),errors=[];p.on('pageerror',e=>errors.push(e.message));p.setDefaultTimeout(60000);
+ const p=await browser.newPage({viewport:{width:1600,height:850},reducedMotion:'reduce'}),errors=[];p.on('pageerror',e=>errors.push(e.message));p.setDefaultTimeout(60000);
  await p.route('**/black-hole-game.js?*',async route=>{const response=await route.fetch();await route.fulfill({response,body:await response.text()+`
  window.__bhQa={
   player:()=>structuredClone(player),fleet:()=>fleet.map(s=>({id:s.id,r:s.r,dead:Number.isFinite(s.deathTime)})),
   static(){const x=[0,0,1.8],m=movingFrame(x,[0,0,0]);player={x,v:0,t:0,tau:0,U:m.U,R:m.E[0],V:m.E[1],F:times(m.E[2],-1)};fleet=[];setPause(true);dirty=true},
   done:()=>renderer.isComplete()&&!dirty,
-  pixels(){const gl=renderer.gl,w=canvas.width,h=canvas.height,a=new Uint8Array(w*h*4);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,a);const sample=(x,y)=>Array.from(a.slice(4*(Math.floor(y)*w+Math.floor(x)),4*(Math.floor(y)*w+Math.floor(x))+3));const critical=PHOTON_SPHERE/Math.sqrt(lapse(PHOTON_SPHERE)),angle=Math.asin(critical*Math.sqrt(lapse(1.8))/1.8),aspect=canvas.getBoundingClientRect().width/canvas.getBoundingClientRect().height;return {center:sample(w/2,h/2),inside:sample(w*(.5+Math.tan(angle*.90)/(2.1*aspect)),h/2),outside:sample(w*(.5+Math.tan(angle*1.10)/(2.1*aspect)),h/2),error:gl.getError(),w,h}},
+  pixels(){const gl=renderer.gl,w=canvas.width,h=canvas.height,a=new Uint8Array(w*h*4);gl.readPixels(0,0,w,h,gl.RGBA,gl.UNSIGNED_BYTE,a);const sample=(x,y)=>Array.from(a.slice(4*(Math.floor(y)*w+Math.floor(x)),4*(Math.floor(y)*w+Math.floor(x))+3));const critical=PHOTON_SPHERE/Math.sqrt(lapse(PHOTON_SPHERE)),angle=Math.asin(critical*Math.sqrt(lapse(1.8))/1.8),aspect=canvas.getBoundingClientRect().width/canvas.getBoundingClientRect().height;return {center:sample(w/2,h/2),inside:sample(w*(.5+Math.tan(angle*.90)/(1.4*aspect)),h/2),outside:sample(w*(.5+Math.tan(angle*1.10)/(1.4*aspect)),h/2),error:gl.getError(),w,h}},
   horizon(){reset();const x=[0,0,HORIZON*1.00405],m=movingFrame(x,[0,0,-.2]);player={x,v:0,t:0,tau:0,U:m.U,R:m.E[0],V:m.E[1],F:times(m.E[2],-1)};setPause(false)},
   hitShip(){reset();setShipCount(24);const ship=fleet[0],q=shipAt(ship,0),m=movingFrame(q.x,[0,0,0]),ray=createPhoton({x:q.x,U:m.U,t:0},m.E[0]);Object.assign(ray,{owner:'player',immune:false});beams.push(ray);const before=structuredClone(player);advance(player,.001);advanceBeams(before,player);dirty=true;setPause(true)},
   hitPlayer(){reset();const ray=createPhoton(player);Object.assign(ray,{owner:'traffic',immune:false});beams.push(ray);setPause(false)},
@@ -17,7 +17,7 @@ const engine=process.argv[2]||'chromium';
   resetForControls(){reset();setPause(false)},
  };
  `})});
- await p.goto((process.env.ADS_URL||'http://127.0.0.1:8081/')+'?level=2&v=36',{waitUntil:'domcontentloaded'});await p.waitForFunction(()=>window.adsFlight?.getState().renderer.ready);
+ await p.goto((process.env.ADS_URL||'http://127.0.0.1:8081/')+'?level=2&v=37',{waitUntil:'domcontentloaded'});await p.waitForFunction(()=>window.adsFlight?.getState().renderer.ready);
  assert.equal(await p.locator('#levelSelect').inputValue(),'2');assert.equal((await p.evaluate(()=>window.adsFlight.getState())).ships,24);
  await p.keyboard.press('ArrowRight');assert.equal((await p.evaluate(()=>window.adsFlight.getState())).pilot,1);
  await p.locator('#launchSound').click();await p.locator('#launchButton').click();for(let i=0;i<4;i++){assert.equal(await p.locator('#introScreen').isVisible(),true);await p.keyboard.press('Enter')}

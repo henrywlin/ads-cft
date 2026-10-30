@@ -1,3 +1,4 @@
+import {hullPaintGLSL,createStarField,displayGLSL,paintEnginePlume,paintExplosion} from './flight-visuals.js?v=37';
 import {dot,add,scale,norm3,TAU,eventAt,staticFrame,initialPlayer,advance,rotate,telemetry,makeFleet,geodesicAt,retarded,shipBounds,seeded,chaseObserver,snapshot} from './physics.js?v=32';
 import {ResolutionController} from './resolution.js?v=32';
 import {ArcadeScore} from './music.js?v=21';
@@ -282,6 +283,8 @@ function initRenderer(){
    // Display response to the exact frequency ratio; broadband colors are stylized.
    return color*vec3(exp(-1.10*z),exp(-.12*abs(z)),exp(1.10*z));
  }
+ ${hullPaintGLSL}
+ ${displayGLSL}
  void main(){
   vec2 screen=(gl_FragCoord.xy-.5*resolution)/resolution.y;
   vec3 d=normalize(vec3(screen*1.40,1.0));
@@ -339,50 +342,9 @@ function initRenderer(){
    if(!found)continue;
    nearest=bestDelay;
    vec3 q=etaHit*(pos.xyz+h*nc),local=q-center,normal=normalize(local/(radii*radii));
+   vec3 hull=hullPaint(kind,part,q,local,radii,nc,size,vel.w,own,playerColor,engineBurn);
    float lighting=.22+.7*max(0.0,dot(normal,normalize(vec3(-.7,1.0,.3))));
-   vec3 base=kind==4?vec3(.72,.80,.85):kind==1?vec3(.82,.80,.72):kind==2?vec3(.37,.32,.25):kind==3?vec3(.67,.73,.79):mix(vec3(.31,.39,.47),vec3(.57,.62,.67),vel.w);
-   if(own)base=playerColor;
-   vec3 hull=base*lighting;
    float edge=pow(1.0-abs(dot(normal,normalize(nc))),2.0);
-   hull+=vec3(.04,.20,.28)*edge;
-   if(kind==5){
-    // Swept interceptor: pilot-colored body, metallic fins and two hot engines.
-    hull=mix(vec3(.12,.19,.25),playerColor,.65)*lighting;
-    if(part==1||part==5||part==6){hull=vec3(.70,.76,.82)*lighting;if(abs(local.x)>radii.x*.72)hull=vec3(.14,.85,1.0)*1.3;}
-    if(part==7)hull=vec3(.14,.52,.90)*1.4+vec3(.20,.10,.36)*edge;
-    if(part==3||part==4){hull=vec3(.32,.42,.51)*lighting;if(local.z<-radii.z*.78)hull=mix(vec3(.10,.20,.35),vec3(.25,.70,1.0)*2.2,engineBurn);}
-    if(part==8)hull=vec3(.95,.64,.24)*lighting;
-    if(part==0&&abs(local.x)>.012*size)hull+=vec3(.30,.19,.06);
-   }else if(kind==0){
-    if(part==0&&local.z>radii.z*.36&&abs(local.x)<radii.x*.7)hull=vec3(.10,.55,.72)*(.7+.3*lighting);
-    if(part==0&&local.z<-radii.z*.79)hull=own?mix(vec3(.05,.07,.09),vec3(1.0,.48,.12)*1.8,engineBurn):vec3(1.0,.39,.11)*1.4;
-    if(part==1&&abs(local.x)>radii.x*.82)hull=vec3(.25,.94,.98);
-   }else if(kind==1){
-    if(part==0&&abs(local.y)<radii.y*.16&&local.z>0.0)hull=vec3(.045,.13,.18);
-    if(part==2&&local.z<-radii.z*.8)hull=vec3(.28,.57,1.0);
-   }else if(kind==2){
-    if(part==0&&local.z>radii.z*.85)hull=vec3(.015,.020,.026);
-    if(part==0&&abs(local.y)<.002*size&&abs(local.z)<.085*size)hull=vec3(.42,.32,.10);
-   }else if(kind==4){
-    // Pearl-metal crowns, gold seams, luminous windows and violet drive petals.
-    float angle=atan(q.y,q.x),radial=length(q.xy);
-    float panels=step(.86,fract(angle*24.0/PI+q.z*110.0));
-    hull=mix(hull,vec3(.86,.54,.18)*(.6+lighting),panels*.75);
-    if(part<32){
-     float windows=step(.35,fract(angle*56.0/PI));
-     if(abs(local.z)<radii.z*.6&&windows>.5)hull=vec3(.15,.86,1.0)*1.6;
-     if(radial<(part<16?.144:.110))hull=vec3(.30,.95,1.0)*1.8;
-     if(local.z>radii.z*.83)hull+=vec3(.14,.20,.26);
-    }else if(part<40){hull+=vec3(.18,.48,.56)*.7;}
-    else{
-     if(local.z<-.115)hull=vec3(.52,.26,1.0)*2.0;
-     if(abs(local.x)<.009&&abs(local.y)<.009&&local.z>.11)hull=vec3(1.0,.74,.32)*1.8;
-    }
-   }else{
-    if((part==2||part==3)&&local.z>radii.z*.77)hull=vec3(1.0,.19,.10);
-    if((part==2||part==3)&&abs(local.x)>radii.x*.65)hull=vec3(.15,.46,1.0);
-    if(part==0&&abs(local.y)<.004*size&&local.z>.018*size)hull=vec3(.25,.45,.63);
-   }
    if(cannon&&part>=(kind==5?${interceptorHull.length}:2)){
     int gunPart=part-(kind==5?${interceptorHull.length}:2);
     // Heavy gunmetal armor, silver heat bands and hot accelerator rails.
@@ -423,30 +385,14 @@ function initRenderer(){
    float g=1.0/max(emitted,.0001);
    color=shifted(hull,g)*clamp(pow(g,.8),.25,2.0);
   }
-  float vignette=1.0-.27*pow(length(screen)/1.1,1.4);
-  color*=max(.55,vignette);
-  // A fixed ordered dither and a 6-bit palette evoke early arcade hardware.
-  // Keep full spatial resolution: the ray intersections remain unchanged.
-  vec3 displayColor=pow(color,vec3(.85));
-  float dither=mod(floor(gl_FragCoord.x)+2.0*floor(gl_FragCoord.y),4.0)/4.0;
-  frag=vec4(floor(clamp(displayColor,0.0,1.0)*63.0+dither)/63.0,1);
+  frag=vec4(arcadeDisplay(color,screen,gl_FragCoord.xy),1);
  }`;
  function compile(type,source){const shader=gl.createShader(type);gl.shaderSource(shader,source);gl.compileShader(shader);if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader));return shader}
  try{
   program=gl.createProgram();gl.attachShader(program,compile(gl.VERTEX_SHADER,vertex));gl.attachShader(program,compile(gl.FRAGMENT_SHADER,fragment));gl.linkProgram(program);if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));gl.useProgram(program);vertexArray=gl.createVertexArray();gl.bindVertexArray(vertexArray);
   for(const n of ['resolution','Xt','Ut','Rt','Vt','Ft','Xs','Us','Rs','Vs','Fs','showGrid','sky','fleet','shipCount','observerTime','playerColor','engineBurn','playerCannon','playerFiring','hullGeometry'])locations[n]=gl.getUniformLocation(program,n);
   skyTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,skyTexture);
-  const sky=document.createElement('canvas');sky.width=Math.min(2048,gl.getParameter(gl.MAX_TEXTURE_SIZE));sky.height=sky.width/2;const ctx=sky.getContext('2d'),rand=seeded(914982);
-  ctx.fillStyle='#000';ctx.fillRect(0,0,sky.width,sky.height);
-  for(let i=0;i<6000;i++){
-   // cos(theta), not theta, is uniform: these are uniform points on S².
-   const cosTheta=rand()*2-1,x=rand()*sky.width,y=Math.acos(cosTheta)/Math.PI*sky.height,b=rand(),r=(b>.995?2.8:b>.96?1.7:.45+rand()*.65)*sky.width/4096;
-   const palette=rand(),color=palette<.13?'255,180,135':palette>.76?'143,192,255':'210,228,255';
-   for(const xx of [x-sky.width,x,x+sky.width]){
-    if(r>1.4){const glow=ctx.createRadialGradient(xx,y,0,xx,y,r*5);glow.addColorStop(0,`rgba(${color},.7)`);glow.addColorStop(.2,`rgba(${color},.22)`);glow.addColorStop(1,`rgba(${color},0)`);ctx.fillStyle=glow;ctx.fillRect(xx-r*5,y-r*5,r*10,r*10)}
-    ctx.beginPath();ctx.arc(xx,y,r,0,TAU);ctx.fillStyle=`rgba(${color},${.38+rand()*.62})`;ctx.fill();
-   }
-  }
+  const sky=createStarField(Math.min(2048,gl.getParameter(gl.MAX_TEXTURE_SIZE)));
   gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sky);gl.generateMipmap(gl.TEXTURE_2D);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   shipTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE1);gl.bindTexture(gl.TEXTURE_2D,shipTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,10,fleetCapacity,0,gl.RGBA,gl.FLOAT,fleetData);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.uniform1i(locations.sky,0);gl.uniform1i(locations.fleet,1);
   hullTexture=gl.createTexture();gl.activeTexture(gl.TEXTURE2);gl.bindTexture(gl.TEXTURE_2D,hullTexture);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,2,hullAtlas.rows,0,gl.RGBA,gl.FLOAT,hullAtlas.data);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.NEAREST);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);gl.uniform1i(locations.hullGeometry,2);
@@ -606,42 +552,11 @@ function projectRocketPoint(observer,ship,local){
  return [width/2+view.dir[0]/view.dir[2]/1.4*height,height/2-view.dir[1]/view.dir[2]/1.4*height];
 }
 function drawEnginePlume(observer,ship){
- if(engineLevel<.015)return;
- const project=local=>projectRocketPoint(observer,ship,local);
- const flicker=.86+.1*Math.sin(effectTime*81)+.06*Math.sin(effectTime*137),length=(.012+.045*engineLevel)*flicker;
- const nozzles=engineNozzles(ship,engineMode,exhaust);
- hctx.save();hctx.globalCompositeOperation='lighter';hctx.lineCap='round';
- for(const origin of nozzles){
-  const start=project(origin),end=project(origin.map((v,i)=>v+exhaust[i]*length));if(!start||!end)continue;
-  const span=Math.hypot(end[0]-start[0],end[1]-start[1]),radius=Math.min(22,Math.max(3,span*.16));
-  const glow=hctx.createRadialGradient(...start,0,...start,radius*2.8);glow.addColorStop(0,'#fff5d3');glow.addColorStop(.3,'#ffb64d99');glow.addColorStop(1,'#ff842000');hctx.fillStyle=glow;hctx.fillRect(start[0]-radius*3,start[1]-radius*3,radius*6,radius*6);
-  const dx=end[0]-start[0],dy=end[1]-start[1],nx=-dy/Math.max(.001,span),ny=dx/Math.max(.001,span);
-  for(const [thickness,fraction,head,tail] of [[radius,.98,'#ff7b32cc','#ff501000'],[radius*.57,.85,'#ffde87','#ff8c3000'],[radius*.23,.65,'#fffef4','#ffdb8600']]){
-   const tip=[start[0]+dx*fraction,start[1]+dy*fraction],gradient=hctx.createLinearGradient(...start,...tip);gradient.addColorStop(0,head);gradient.addColorStop(.45,head);gradient.addColorStop(1,tail);hctx.fillStyle=gradient;hctx.shadowColor='#ff9239';hctx.shadowBlur=radius;
-   hctx.beginPath();hctx.moveTo(start[0]+nx*thickness,start[1]+ny*thickness);hctx.quadraticCurveTo(start[0]+dx*.35+nx*thickness*.65,start[1]+dy*.35+ny*thickness*.65,...tip);hctx.quadraticCurveTo(start[0]+dx*.35-nx*thickness*.65,start[1]+dy*.35-ny*thickness*.65,start[0]-nx*thickness,start[1]-ny*thickness);hctx.closePath();hctx.fill();
-  }
-  hctx.shadowBlur=0;
-  for(let j=0;j<24;j++){
-   const age=(effectTime*(1.5+engineLevel)+j*.6180339)%1,spread=.002+age*.012;
-   const point=project(origin.map((v,i)=>v+exhaust[i]*length*(.3+age*1.5)+(i<2?Math.sin(j*17.3+i*7)*spread:0)));if(!point)continue;
-   hctx.globalAlpha=engineLevel*(1-age)**2;hctx.fillStyle=j%3?'#ffb761':'#fff2ad';const r=.7+(1-age)*1.4;hctx.fillRect(point[0]-r,point[1]-r,r*2,r*2);
-  }
-  hctx.globalAlpha=1;
- }
- hctx.restore();
+ paintEnginePlume(hctx,{project:local=>projectRocketPoint(observer,ship,local),level:engineLevel,mode:engineMode,exhaust,ship,time:effectTime});
 }
 function drawExplosion(x,y,age,ship,view){
- if(x<-250||x>width+250||y<-250||y>height+250)return;
- const extent=Math.max(65,Math.min(170,ship.boundRadius*ship.size/Math.max(.08,view.distance)*height*3)),r=extent*(.25+1.35*Math.sqrt(age)),fade=Math.pow(1-age,1.4);
- hctx.save();hctx.globalCompositeOperation='lighter';hctx.globalAlpha=fade;
- const glow=hctx.createRadialGradient(x,y,0,x,y,r);glow.addColorStop(0,'#fffbe6');glow.addColorStop(.15,'#fff0a0');glow.addColorStop(.4,'#ff742acc');glow.addColorStop(1,'#ff321000');hctx.fillStyle=glow;hctx.fillRect(x-r,y-r,r*2,r*2);
- hctx.strokeStyle='#ffcd7c';hctx.lineWidth=3*(1-age)+1;hctx.beginPath();hctx.ellipse(x,y,r*.9,r*.4,0,0,TAU);hctx.stroke();
- const rand=seeded(2301+fleet.indexOf(ship));
- for(let j=0;j<42;j++){
-  const theta=rand()*TAU,travel=r*(.35+rand()*.85),xx=x+Math.cos(theta)*travel,yy=y+Math.sin(theta)*travel,px=3+rand()*7*(1-age);
-  hctx.strokeStyle=j%3?'#ff8539':'#fff3b5';hctx.lineWidth=px*.55;hctx.beginPath();hctx.moveTo(xx,yy);hctx.lineTo(xx-Math.cos(theta)*px*3,yy-Math.sin(theta)*px*3);hctx.stroke();hctx.fillStyle=j%3?'#ffb954':'#fffbe1';hctx.fillRect(xx-px/2,yy-px/2,px,px);
- }
- if(age<.12){hctx.globalAlpha=(1-age/.12)*.13;hctx.fillStyle='#ffbc6b';hctx.fillRect(0,0,width,height)}hctx.restore();
+ const extent=Math.max(65,Math.min(170,ship.boundRadius*ship.size/Math.max(.08,view.distance)*height*3));
+ paintExplosion(hctx,{x,y,age,extent,width,height,seed:2301+fleet.indexOf(ship)});
 }
 function drawLaserPulses(observer){
  const visible=[];
